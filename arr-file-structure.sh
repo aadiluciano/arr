@@ -1,8 +1,10 @@
 #!/bin/bash
 set -e
 
-# Root path for docker data (directly under pool1)
-POOL_ROOT="/mnt/pool1"
+# Prompt user for pool name
+read -p "Enter your pool name (e.g., pool1): " POOL_ROOT
+
+echo "📂 Creating ZFS datasets under /mnt/$POOL_ROOT"
 
 # Config datasets for each app
 CONFIG_DATASETS=(
@@ -22,27 +24,56 @@ CONFIG_DATASETS=(
   "nzbget"
 )
 
-echo "📂 Creating Docker file structure under $POOL_ROOT"
+# Media subdatasets
+MEDIA_DATASETS=("movies" "tv" "downloads")
 
-# Create base directories
-mkdir -p "$POOL_ROOT/configs"
-mkdir -p "$POOL_ROOT/media/movies"
-mkdir -p "$POOL_ROOT/media/tv"
-mkdir -p "$POOL_ROOT/media/downloads"
+# Function to apply permissions
+set_permissions() {
+    local path="/mnt/$POOL_ROOT/$1"
+    if [ -d "$path" ]; then
+        chown root:apps "$path"
+        chmod 770 "$path"
+        echo "Permissions set: $path -> root:apps, 770"
+    else
+        echo "⚠️ Warning: $path does not exist to set permissions."
+    fi
+}
 
-# Create config subfolders
-for app in "${CONFIG_DATASETS[@]}"; do
-  mkdir -p "$POOL_ROOT/configs/$app"
+# Create the root datasets if they don't exist
+for ds in "configs" "media"; do
+    if ! zfs list "$POOL_ROOT/$ds" >/dev/null 2>&1; then
+        echo "Creating dataset: $POOL_ROOT/$ds"
+        zfs create "$POOL_ROOT/$ds"
+    else
+        echo "Dataset $POOL_ROOT/$ds already exists, skipping..."
+    fi
 done
 
-# Optional: create tdarr subfolders
-mkdir -p "$POOL_ROOT/configs/tdarr/server"
-mkdir -p "$POOL_ROOT/configs/tdarr/logs"
-mkdir -p "$POOL_ROOT/configs/tdarr/transcode_cache"
+# Create config subdatasets
+for app in "${CONFIG_DATASETS[@]}"; do
+    if ! zfs list "$POOL_ROOT/configs/$app" >/dev/null 2>&1; then
+        echo "Creating dataset: $POOL_ROOT/configs/$app"
+        zfs create "$POOL_ROOT/configs/$app"
+    else
+        echo "Dataset $POOL_ROOT/configs/$app already exists, skipping..."
+    fi
+done
 
-# Set permissions (adjust UID/GID if needed)
-chown -R 1000:1000 "$POOL_ROOT"
-chmod -R 770 "$POOL_ROOT"
+# Create media subdatasets
+for folder in "${MEDIA_DATASETS[@]}"; do
+    if ! zfs list "$POOL_ROOT/media/$folder" >/dev/null 2>&1; then
+        echo "Creating dataset: $POOL_ROOT/media/$folder"
+        zfs create "$POOL_ROOT/media/$folder"
+    else
+        echo "Dataset $POOL_ROOT/media/$folder already exists, skipping..."
+    fi
+done
 
-echo "✅ File structure created successfully:"
-tree -d -L 3 "$POOL_ROOT" || echo "Install 'tree' to view directory structure."
+echo "✅ ZFS datasets for configs and media created successfully"
+
+# Optional: show tree if installed
+if command -v tree >/dev/null 2>&1; then
+    tree -d -L 3 "/mnt/$POOL_ROOT"
+else
+    echo "Install 'tree' to view directory structure visually."
+fi
