@@ -25,52 +25,58 @@ CONFIG_DATASETS=(
 )
 
 # Media subdatasets
-MEDIA_DATASETS=("movies" "tv" "downloads")
+MEDIA_DATASETS=(
+"movies" 
+"tv" 
+"downloads"
+)
 
-# Function to apply permissions
-set_permissions() {
-    local path="/mnt/$POOL_ROOT/$1"
-    if [ -d "$path" ]; then
-        chown root:apps "$path"
-        chmod 770 "$path"
-        echo "Permissions set: $path -> root:apps, 770"
+# Function to create dataset, mount it, and set permissions
+create_dataset() {
+    local dataset="$1"
+    local mountpoint="/mnt/$POOL_ROOT/$dataset"
+
+    if ! zfs list "$POOL_ROOT/$dataset" >/dev/null 2>&1; then
+        echo "Creating dataset: $POOL_ROOT/$dataset"
+        zfs create "$POOL_ROOT/$dataset"
     else
-        echo "⚠️ Warning: $path does not exist to set permissions."
+        echo "Dataset $POOL_ROOT/$dataset already exists, skipping..."
+    fi
+
+    # Mount the dataset if not already mounted
+    if ! mountpoint -q "$mountpoint"; then
+        echo "Mounting $POOL_ROOT/$dataset..."
+        zfs mount "$POOL_ROOT/$dataset"
+    fi
+
+    # Apply permissions
+    if [ -d "$mountpoint" ]; then
+        chown root:apps "$mountpoint"
+        chmod 770 "$mountpoint"
+        echo "✅ Permissions set for $mountpoint -> root:apps, 770"
+    else
+        echo "⚠️ Warning: $mountpoint does not exist even after mounting."
     fi
 }
 
-# Create the root datasets if they don't exist
-for ds in "configs" "media"; do
-    if ! zfs list "$POOL_ROOT/$ds" >/dev/null 2>&1; then
-        echo "Creating dataset: $POOL_ROOT/$ds"
-        zfs create "$POOL_ROOT/$ds"
-    else
-        echo "Dataset $POOL_ROOT/$ds already exists, skipping..."
-    fi
-done
+# Create root datasets
+create_dataset "configs"
+create_dataset "media"
 
 # Create config subdatasets
 for app in "${CONFIG_DATASETS[@]}"; do
-    if ! zfs list "$POOL_ROOT/configs/$app" >/dev/null 2>&1; then
-        echo "Creating dataset: $POOL_ROOT/configs/$app"
-        zfs create "$POOL_ROOT/configs/$app"
-    else
-        echo "Dataset $POOL_ROOT/configs/$app already exists, skipping..."
-    fi
+    create_dataset "configs/$app"
 done
 
 # Create media subdatasets
 for folder in "${MEDIA_DATASETS[@]}"; do
-    if ! zfs list "$POOL_ROOT/media/$folder" >/dev/null 2>&1; then
-        echo "Creating dataset: $POOL_ROOT/media/$folder"
-        zfs create "$POOL_ROOT/media/$folder"
-    else
-        echo "Dataset $POOL_ROOT/media/$folder already exists, skipping..."
-    fi
+    create_dataset "media/$folder"
 done
 
-echo "✅ ZFS datasets for configs and media created successfully"
+echo "✅ All ZFS datasets created and permissioned successfully"
 
-# Print directory tree using find
+# Print directory tree under /mnt/$POOL_ROOT
 echo "📂 Directory structure under /mnt/$POOL_ROOT:"
 find "/mnt/$POOL_ROOT" -type d | sed "s|$PWD|.|" | sed 's|[^/]*/| |g'
+
+echo "🎉 Setup complete!"
