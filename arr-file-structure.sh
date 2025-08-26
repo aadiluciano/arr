@@ -71,9 +71,6 @@ done
 
 echo "✅ ZFS datasets for configs and media created successfully"
 
-# Optional: show tree if installed
-if command -v tree >/dev/null 2>&1; then
-    tree -d -L 3 "/mnt/$POOL_ROOT"
-else
-    echo "Install 'tree' to view directory structure visually."
-fi
+# Print directory tree using find
+echo "📂 Directory structure under /mnt/$POOL_ROOT:"
+find "/mnt/$POOL_ROOT" -type d | sed "s|$PWD|.|" | sed 's|[^/]*/| |g'
