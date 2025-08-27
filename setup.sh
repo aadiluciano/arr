@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ==========================
-# TrueNAS Media Server Setup
+# TrueNAS SCALE Media Server Setup
 # ==========================
 
 # Prompt for pool name
@@ -27,7 +27,7 @@ MEDIA_SUBS=("movies" "tv" "music" "downloads" "downloads/complete" "downloads/in
 CONFIG_FOLDERS=("radarr" "sonarr" "jellyfin" "prowlarr" "jellyseerr")
 
 # --------------------------
-# 1. Create datasets
+# 1. Create datasets if missing
 # --------------------------
 echo "=== Creating datasets if missing ==="
 zfs list "$POOL/media" &>/dev/null || zfs create "$POOL/media"
@@ -39,12 +39,8 @@ zfs list "$POOL/appdata" &>/dev/null || zfs create "$POOL/appdata"
 echo "=== Creating media subfolders ==="
 for folder in "${MEDIA_SUBS[@]}"; do
     FULL_PATH="$MEDIA/$folder"
-    if [ ! -d "$FULL_PATH" ]; then
-        mkdir -p "$FULL_PATH"
-        echo "Created $FULL_PATH"
-    else
-        echo "Folder $FULL_PATH already exists, skipping"
-    fi
+    mkdir -p "$FULL_PATH"
+    echo "Created or exists: $FULL_PATH"
 done
 
 # --------------------------
@@ -54,15 +50,17 @@ echo "=== Creating appdata config folders ==="
 for folder in "${CONFIG_FOLDERS[@]}"; do
     mkdir -p "$CONFIG/$folder"
 done
-
 mkdir -p "$COMPOSE"
 
 # --------------------------
-# 4. Set ownership
+# 4. Set ownership and permissions
 # --------------------------
 echo "=== Setting ownership to UID:$USER_ID GID:$GROUP_ID ==="
 chown -R $USER_ID:$GROUP_ID "$MEDIA"
 chown -R $USER_ID:$GROUP_ID "$APPDATA"
+
+# Ensure media folders are writable
+chmod -R 775 "$MEDIA"
 
 # --------------------------
 # 5. Create .env file
@@ -169,16 +167,16 @@ docker ps -a | grep -E 'radarr|sonarr|jellyfin|prowlarr|jellyseerr' | awk '{prin
 # 9. Bring up containers
 # --------------------------
 echo "=== Bringing up containers with new UID/GID ==="
-docker compose -f "$COMPOSE_FILE" up -d --remove-orphans
+docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --remove-orphans
 
 # --------------------------
 # 10. Instructions
 # --------------------------
 echo "=== Setup complete ==="
-echo "Containers are running. Verify UID/GID inside Radarr:"
+echo "Verify UID/GID inside Radarr:"
 echo "docker exec -it radarr id  (should show uid=1000 gid=1000)"
 echo ""
-echo "You can now open Radarr, Sonarr, Jellyfin, etc. and add:"
-echo "  /movies  as Radarr root folder"
-echo "  /tv      as Sonarr root folder"
+echo "You can now add root folders:"
+echo "  /movies  -> Radarr"
+echo "  /tv      -> Sonarr"
 echo "These folders are already created with correct permissions."
