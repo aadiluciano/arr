@@ -11,10 +11,14 @@ read -p "Enter your TrueNAS pool name: " POOL
 MEDIA="/mnt/$POOL/media"
 APPDATA="/mnt/$POOL/appdata"
 COMPOSE="$APPDATA/compose"
+CONFIG="$APPDATA/config"
 
 # UID/GID for Docker apps
 USER_ID=1000
 GROUP_ID=1000
+
+# Timezone
+TZ="America/Toronto"
 
 # Media subfolders
 MEDIA_SUBS=("movies" "tv" "music" "downloads" "downloads/complete" "downloads/incomplete")
@@ -30,12 +34,17 @@ zfs list "$POOL/media" &>/dev/null || zfs create "$POOL/media"
 zfs list "$POOL/appdata" &>/dev/null || zfs create "$POOL/appdata"
 
 # --------------------------
-# 2. Create media folders
+# 2. Create media subfolders
 # --------------------------
 echo "=== Creating media subfolders ==="
 for folder in "${MEDIA_SUBS[@]}"; do
     FULL_PATH="$MEDIA/$folder"
-    [ -d "$FULL_PATH" ] || mkdir -p "$FULL_PATH"
+    if [ ! -d "$FULL_PATH" ]; then
+        mkdir -p "$FULL_PATH"
+        echo "Created $FULL_PATH"
+    else
+        echo "Folder $FULL_PATH already exists, skipping"
+    fi
 done
 
 # --------------------------
@@ -43,7 +52,7 @@ done
 # --------------------------
 echo "=== Creating appdata config folders ==="
 for folder in "${CONFIG_FOLDERS[@]}"; do
-    mkdir -p "$APPDATA/config/$folder"
+    mkdir -p "$CONFIG/$folder"
 done
 
 mkdir -p "$COMPOSE"
@@ -56,29 +65,47 @@ chown -R $USER_ID:$GROUP_ID "$MEDIA"
 chown -R $USER_ID:$GROUP_ID "$APPDATA"
 
 # --------------------------
-# 5. Backup old docker-compose.yml if exists
+# 5. Create .env file
 # --------------------------
-if [ -f "$COMPOSE/docker-compose.yml" ]; then
+ENV_FILE="$COMPOSE/.env"
+if [ -f "$ENV_FILE" ]; then
+    echo "Backing up existing .env file"
+    cp "$ENV_FILE" "$ENV_FILE.bak.$(date +%F-%T)"
+fi
+
+cat > "$ENV_FILE" <<EOL
+PUID=$USER_ID
+PGID=$GROUP_ID
+TZ=$TZ
+EOL
+
+echo "Created .env file at $ENV_FILE"
+
+# --------------------------
+# 6. Backup old docker-compose.yml if exists
+# --------------------------
+COMPOSE_FILE="$COMPOSE/docker-compose.yml"
+if [ -f "$COMPOSE_FILE" ]; then
     echo "Backing up existing docker-compose.yml"
-    cp "$COMPOSE/docker-compose.yml" "$COMPOSE/docker-compose.yml.bak.$(date +%F-%T)"
+    cp "$COMPOSE_FILE" "$COMPOSE_FILE.bak.$(date +%F-%T)"
 fi
 
 # --------------------------
-# 6. Generate docker-compose.yml
+# 7. Generate docker-compose.yml
 # --------------------------
 echo "=== Generating docker-compose.yml ==="
-cat > "$COMPOSE/docker-compose.yml" <<EOL
+cat > "$COMPOSE_FILE" <<EOL
+version: '3.9'
+
 services:
   radarr:
     image: linuxserver/radarr:latest
     container_name: radarr
-    environment:
-      - PUID=$USER_ID
-      - PGID=$GROUP_ID
-      - TZ=America/Toronto
+    env_file:
+      - .env
     volumes:
       - $MEDIA/movies:/movies
-      - $APPDATA/config/radarr:/config
+      - $CONFIG/radarr:/config
     ports:
       - 7878:7878
     restart: unless-stopped
@@ -86,14 +113,12 @@ services:
   sonarr:
     image: linuxserver/sonarr:latest
     container_name: sonarr
-    environment:
-      - PUID=$USER_ID
-      - PGID=$GROUP_ID
-      - TZ=America/Toronto
+    env_file:
+      - .env
     volumes:
       - $MEDIA/tv:/tv
       - $MEDIA/downloads:/downloads
-      - $APPDATA/config/sonarr:/config
+      - $CONFIG/sonarr:/config
     ports:
       - 8989:8989
     restart: unless-stopped
@@ -101,13 +126,11 @@ services:
   jellyfin:
     image: linuxserver/jellyfin:latest
     container_name: jellyfin
-    environment:
-      - PUID=$USER_ID
-      - PGID=$GROUP_ID
-      - TZ=America/Toronto
+    env_file:
+      - .env
     volumes:
       - $MEDIA:/media
-      - $APPDATA/config/jellyfin:/config
+      - $CONFIG/jellyfin:/config
     ports:
       - 8096:8096
     restart: unless-stopped
@@ -115,12 +138,10 @@ services:
   prowlarr:
     image: linuxserver/prowlarr:latest
     container_name: prowlarr
-    environment:
-      - PUID=$USER_ID
-      - PGID=$GROUP_ID
-      - TZ=America/Toronto
+    env_file:
+      - .env
     volumes:
-      - $APPDATA/config/prowlarr:/config
+      - $CONFIG/prowlarr:/config
     ports:
       - 9696:9696
     restart: unless-stopped
@@ -128,30 +149,36 @@ services:
   jellyseerr:
     image: fallenbagel/jellyseerr:latest
     container_name: jellyseerr
-    environment:
-      - PUID=$USER_ID
-      - PGID=$GROUP_ID
-      - TZ=America/Toronto
+    env_file:
+      - .env
     volumes:
-      - $APPDATA/config/jellyseerr:/config
+      - $CONFIG/jellyseerr:/config
     ports:
       - 5055:5055
     restart: unless-stopped
 EOL
 
 # --------------------------
-# 7. Stop and remove old containers
+# 8. Stop and remove old containers
 # --------------------------
 echo "=== Stopping and removing old containers ==="
-docker compose -f "$COMPOSE/docker-compose.yml" down
+docker compose -f "$COMPOSE_FILE" down
 docker ps -a | grep -E 'radarr|sonarr|jellyfin|prowlarr|jellyseerr' | awk '{print $1}' | xargs -r docker rm -f
 
 # --------------------------
-# 8. Bring up containers
+# 9. Bring up containers
 # --------------------------
 echo "=== Bringing up containers with new UID/GID ==="
-docker compose -f "$COMPOSE/docker-compose.yml" up -d --remove-orphans
+docker compose -f "$COMPOSE_FILE" up -d --remove-orphans
 
+# --------------------------
+# 10. Instructions
+# --------------------------
 echo "=== Setup complete ==="
-echo "Check containers with: docker ps"
-echo "Inside Radarr container: docker exec -it radarr id (should show uid=1000 gid=1000)"
+echo "Containers are running. Verify UID/GID inside Radarr:"
+echo "docker exec -it radarr id  (should show uid=1000 gid=1000)"
+echo ""
+echo "You can now open Radarr, Sonarr, Jellyfin, etc. and add:"
+echo "  /movies  as Radarr root folder"
+echo "  /tv      as Sonarr root folder"
+echo "These folders are already created with correct permissions."
