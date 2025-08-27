@@ -1,88 +1,79 @@
 #!/bin/bash
 
-# === TrueNAS Scale Media Server Setup Script ===
-
 set -e
 
-echo "=== TrueNAS Scale Media Server Setup ==="
+echo "=== TrueNAS Scale Media Server Setup (Safe Version) ==="
 
-# --- Prompt for pool ---
+# Prompt for pool
 read -rp "Enter your TrueNAS pool name (e.g., pool1): " POOL
 
-# --- Base paths ---
+# Base paths
 MEDIA="/mnt/$POOL/media"
 APPDATA="/mnt/$POOL/appdata"
 CONFIG_DIR="$APPDATA/config"
 COMPOSE_DIR="$APPDATA/compose"
 
-# --- Media subdirectories ---
-MEDIA_SUBDIRS=("movies" "tv" "music" "downloads/complete" "downloads/incomplete")
+# Media sub-datasets
+MEDIA_SUBS=("movies" "tv" "music" "downloads" "downloads/complete" "downloads/incomplete")
 
-# --- Apps ---
+# Apps
 CONFIG_APPS=("jellyfin" "sonarr" "radarr" "prowlar" "jellyseerr")
 PORTS=(8096 8989 7878 9696 5055)
 
-# --- UID/GID for Docker containers ---
+# UID/GID for Docker
 USER_ID=1000
 GROUP_ID=1000
 
-echo "Creating media datasets..."
+echo "=== Creating media dataset and sub-datasets ==="
+if ! zfs list "$POOL/media" &> /dev/null; then
+    zfs create "$POOL/media"
+    echo "Created dataset $POOL/media"
+fi
 
-# Create media datasets
-for dir in "${MEDIA_SUBDIRS[@]}"; do
-    DATASET="$POOL/$(echo $dir | sed 's/\//_/g')"
-    if ! zfs list "$DATASET" &> /dev/null; then
-        echo "Creating dataset $DATASET"
-        zfs create "$DATASET"
-    else
-        echo "Dataset $DATASET already exists, skipping."
-    fi
+for sub in "${MEDIA_SUBS[@]}"; do
+    zfs create -p "$POOL/media/$sub" 2>/dev/null || echo "Dataset $POOL/media/$sub already exists, skipping"
 done
 
-# Create appdata datasets
-for dataset in ("appdata" "appdata/config" "appdata/compose"); do
-    FULL_DATASET="$POOL/$dataset"
-    if ! zfs list "$FULL_DATASET" &> /dev/null; then
-        echo "Creating dataset $FULL_DATASET"
-        zfs create "$FULL_DATASET"
-    else
-        echo "Dataset $FULL_DATASET already exists, skipping."
-    fi
-done
+# Set top-level media ownership (do NOT recurse)
+chown $USER_ID:$GROUP_ID "$MEDIA"
 
-# --- Ensure proper permissions ---
-echo "Setting permissions..."
-chown -R $USER_ID:$GROUP_ID "$MEDIA"
+echo "=== Creating appdata dataset and sub-datasets ==="
+if ! zfs list "$POOL/appdata" &> /dev/null; then
+    zfs create "$POOL/appdata"
+fi
+zfs create -p "$POOL/appdata/config"
+zfs create "$POOL/appdata/compose"
+
+# Set ownership recursively for appdata (safe)
 chown -R $USER_ID:$GROUP_ID "$APPDATA"
 
-# --- Create per-app config subfolders ---
-echo "Creating per-app config directories..."
+# Create per-app config folders
+echo "=== Creating per-app config folders ==="
 for app in "${CONFIG_APPS[@]}"; do
-    APP_CONFIG_DIR="$CONFIG_DIR/$app"
-    if [ ! -d "$APP_CONFIG_DIR" ]; then
-        mkdir -p "$APP_CONFIG_DIR"
-        chown -R $USER_ID:$GROUP_ID "$APP_CONFIG_DIR"
-        echo "Created config folder: $APP_CONFIG_DIR"
+    APP_CONFIG="$CONFIG_DIR/$app"
+    if [ ! -d "$APP_CONFIG" ]; then
+        mkdir -p "$APP_CONFIG"
+        chown -R $USER_ID:$GROUP_ID "$APP_CONFIG"
+        echo "Created config folder: $APP_CONFIG"
     else
-        echo "Config folder $APP_CONFIG_DIR already exists, skipping."
+        echo "Config folder $APP_CONFIG already exists, skipping"
     fi
 done
 
-# --- Generate .env file ---
+# Generate .env file
 ENV_FILE="$COMPOSE_DIR/.env"
-echo "Generating .env file at $ENV_FILE"
-
+echo "=== Generating .env file at $ENV_FILE ==="
 cat > "$ENV_FILE" <<EOL
 # Pool and base paths
 POOL=$POOL
 APPDATA=$APPDATA
 MEDIA=$MEDIA
 
-# App-specific config dirs
+# App config paths
 CONFIG_DIR=$CONFIG_DIR
 COMPOSE_DIR=$COMPOSE_DIR
 
-# Media sub-datasets
+# Media paths
 MOVIES=$MEDIA/movies
 TV=$MEDIA/tv
 MUSIC=$MEDIA/music
@@ -98,10 +89,9 @@ PROWLARR_PORT=9696
 JELLYSEERR_PORT=5055
 EOL
 
-# --- Generate docker-compose.yml ---
+# Generate docker-compose.yml
 COMPOSE_FILE="$COMPOSE_DIR/docker-compose.yml"
-echo "Generating docker-compose.yml at $COMPOSE_FILE"
-
+echo "=== Generating docker-compose.yml at $COMPOSE_FILE ==="
 cat > "$COMPOSE_FILE" <<'EOL'
 version: "3.8"
 
@@ -176,14 +166,10 @@ services:
     ports:
       - "${JELLYSEERR_PORT}:5055"
     restart: unless-stopped
-
 EOL
 
-# --- Launch Docker stack ---
-echo "Launching Docker containers..."
-cd "$COMPOSE_DIR"
-docker compose --env-file .env up -d
+echo "=== Docker containers ready. Run manually if you wish: ==="
+echo "cd $COMPOSE_DIR && docker compose --env-file .env up -d"
 
-echo "=== Setup Complete ==="
-echo "Safe local media apps are running."
-echo "All datasets are visible in TrueNAS, app configs are ready, and docker-compose.yml/.env are in place for future expansion."
+echo "=== Setup complete! ==="
+echo "Media datasets are intact. Appdata and config folders are ready. Docker compose file generated."
