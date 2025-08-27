@@ -13,9 +13,11 @@ APPDATA="/mnt/$POOL/appdata"
 COMPOSE="$APPDATA/compose"
 CONFIG="$APPDATA/config"
 
-# UID/GID for Docker apps
-USER_ID=1000
-GROUP_ID=1000
+# Detect current user UID/GID
+USER_ID=$(id -u)
+GROUP_ID=$(id -g)
+
+echo "Detected UID=$USER_ID and GID=$GROUP_ID for current user"
 
 # Timezone
 TZ="America/Toronto"
@@ -174,7 +176,7 @@ docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --remove-orphans
 # --------------------------
 echo "=== Setup complete ==="
 echo "Verify UID/GID inside Radarr:"
-echo "docker exec -it radarr id  (should show uid=1000 gid=1000)"
+echo "docker exec -it radarr id  (should show uid=$USER_ID gid=$GROUP_ID)"
 echo ""
 echo "You can now add root folders:"
 echo "  /movies  -> Radarr"
