@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# -----------------------------
+# ==========================
 # TrueNAS Media Server Setup
-# -----------------------------
+# ==========================
 
 # Prompt for pool name
 read -p "Enter your TrueNAS pool name: " POOL
@@ -22,33 +22,50 @@ MEDIA_SUBS=("movies" "tv" "music" "downloads" "downloads/complete" "downloads/in
 # Appdata config folders
 CONFIG_FOLDERS=("radarr" "sonarr" "jellyfin" "prowlarr" "jellyseerr")
 
+# --------------------------
+# 1. Create datasets
+# --------------------------
 echo "=== Creating datasets if missing ==="
 zfs list "$POOL/media" &>/dev/null || zfs create "$POOL/media"
 zfs list "$POOL/appdata" &>/dev/null || zfs create "$POOL/appdata"
 
+# --------------------------
+# 2. Create media folders
+# --------------------------
 echo "=== Creating media subfolders ==="
 for folder in "${MEDIA_SUBS[@]}"; do
     FULL_PATH="$MEDIA/$folder"
-    if [ ! -d "$FULL_PATH" ]; then
-        mkdir -p "$FULL_PATH"
-        echo "Created $FULL_PATH"
-    else
-        echo "Folder $FULL_PATH already exists, skipping"
-    fi
+    [ -d "$FULL_PATH" ] || mkdir -p "$FULL_PATH"
 done
 
+# --------------------------
+# 3. Create appdata config folders
+# --------------------------
 echo "=== Creating appdata config folders ==="
 for folder in "${CONFIG_FOLDERS[@]}"; do
     mkdir -p "$APPDATA/config/$folder"
 done
 
-# Compose folder
 mkdir -p "$COMPOSE"
 
+# --------------------------
+# 4. Set ownership
+# --------------------------
 echo "=== Setting ownership to UID:$USER_ID GID:$GROUP_ID ==="
 chown -R $USER_ID:$GROUP_ID "$MEDIA"
 chown -R $USER_ID:$GROUP_ID "$APPDATA"
 
+# --------------------------
+# 5. Backup old docker-compose.yml if exists
+# --------------------------
+if [ -f "$COMPOSE/docker-compose.yml" ]; then
+    echo "Backing up existing docker-compose.yml"
+    cp "$COMPOSE/docker-compose.yml" "$COMPOSE/docker-compose.yml.bak.$(date +%F-%T)"
+fi
+
+# --------------------------
+# 6. Generate docker-compose.yml
+# --------------------------
 echo "=== Generating docker-compose.yml ==="
 cat > "$COMPOSE/docker-compose.yml" <<EOL
 services:
@@ -122,7 +139,19 @@ services:
     restart: unless-stopped
 EOL
 
+# --------------------------
+# 7. Stop and remove old containers
+# --------------------------
+echo "=== Stopping and removing old containers ==="
+docker compose -f "$COMPOSE/docker-compose.yml" down
+docker ps -a | grep -E 'radarr|sonarr|jellyfin|prowlarr|jellyseerr' | awk '{print $1}' | xargs -r docker rm -f
+
+# --------------------------
+# 8. Bring up containers
+# --------------------------
+echo "=== Bringing up containers with new UID/GID ==="
+docker compose -f "$COMPOSE/docker-compose.yml" up -d --remove-orphans
+
 echo "=== Setup complete ==="
-echo "Docker Compose file saved to $COMPOSE/docker-compose.yml"
-echo "You can now run:"
-echo "cd $COMPOSE && docker compose up -d --remove-orphans"
+echo "Check containers with: docker ps"
+echo "Inside Radarr container: docker exec -it radarr id (should show uid=1000 gid=1000)"
