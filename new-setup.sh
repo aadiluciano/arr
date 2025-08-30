@@ -71,9 +71,9 @@ chmod -R 775 "$MEDIA"
 # 5. Ask for VPN method
 # --------------------------
 echo "Choose VPN type:"
-select vpn_type in "openvpn" "wireguard"; do
-  case $vpn_type in
-    openvpn )
+select vpn_type in "1) OpenVPN" "2) WireGuard"; do
+  case $REPLY in
+    1)
       VPN_TYPE="openvpn"
       read -p "Enter your VPN provider (e.g. privado, pia, mullvad): " VPN_PROVIDER
       read -p "Enter your VPN username: " VPN_USER
@@ -81,7 +81,7 @@ select vpn_type in "openvpn" "wireguard"; do
       echo
       break
       ;;
-    wireguard )
+    2)
       VPN_TYPE="wireguard"
       echo "Paste your full WireGuard .conf file contents (end with CTRL+D):"
       WG_CONF="$CONFIG/gluetun/wireguard.conf"
@@ -91,6 +91,9 @@ select vpn_type in "openvpn" "wireguard"; do
       VPN_USER=""
       VPN_PASS=""
       break
+      ;;
+    *)
+      echo "Invalid option. Please enter 1 or 2."
       ;;
   esac
 done
