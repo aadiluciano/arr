@@ -68,23 +68,53 @@ chown -R $USER_ID:$GROUP_ID "$APPDATA"
 chmod -R 775 "$MEDIA"
 
 # --------------------------
-# 5. Create .env file
+# 5. VPN Choice
 # --------------------------
+echo "Which VPN type would you like to use for qBittorrent?"
+echo "1) OpenVPN (username/password)"
+echo "2) WireGuard (paste full config file)"
+read -p "Enter choice [1 or 2]: " VPN_CHOICE
+
 ENV_FILE="$COMPOSE/.env"
 if [ -f "$ENV_FILE" ]; then
     echo "Backing up existing .env file"
     cp "$ENV_FILE" "$ENV_FILE.bak.$(date +%F-%T)"
 fi
 
-cat > "$ENV_FILE" <<EOL
+if [ "$VPN_CHOICE" == "1" ]; then
+    read -p "Enter your PrivadoVPN username: " VPN_USER
+    read -sp "Enter your PrivadoVPN password: " VPN_PASS
+    echo
+    cat > "$ENV_FILE" <<EOL
 PUID=$USER_ID
 PGID=$GROUP_ID
 TZ=$TZ
-VPN_USER=your_vpn_username
-VPN_PASS=your_vpn_password
-VPN_PROVIDER=your_vpn_provider
+VPN_TYPE=openvpn
+VPN_SERVICE_PROVIDER=privado
+OPENVPN_USER=$VPN_USER
+OPENVPN_PASSWORD=$VPN_PASS
 TS_AUTHKEY=your_tailscale_authkey
 EOL
+    WG_MODE="false"
+elif [ "$VPN_CHOICE" == "2" ]; then
+    echo "Paste the full contents of your Privado WireGuard .conf file below."
+    echo "End input with CTRL+D when finished."
+    WG_CONF_PATH="$CONFIG/gluetun/wg0.conf"
+    cat > "$WG_CONF_PATH"
+    cat > "$ENV_FILE" <<EOL
+PUID=$USER_ID
+PGID=$GROUP_ID
+TZ=$TZ
+VPN_TYPE=wireguard
+VPN_SERVICE_PROVIDER=custom
+WIREGUARD_CONFIG_FILE=/gluetun/wg0.conf
+TS_AUTHKEY=your_tailscale_authkey
+EOL
+    WG_MODE="true"
+else
+    echo "Invalid choice. Exiting."
+    exit 1
+fi
 
 echo "Created .env file at $ENV_FILE"
 
@@ -183,6 +213,10 @@ services:
       - .env
     volumes:
       - $CONFIG/gluetun:/gluetun
+    ports:
+      - "8080:8080"
+      - "6881:6881/tcp"
+      - "6881:6881/udp"
     networks:
       - vpn_net
     restart: unless-stopped
@@ -196,8 +230,6 @@ services:
       - $MEDIA/downloads:/downloads
       - $CONFIG/qbittorrent:/config
     network_mode: service:gluetun
-    ports:
-      - "8080:8080"
     depends_on:
       - gluetun
     restart: unless-stopped
