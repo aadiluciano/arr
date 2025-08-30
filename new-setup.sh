@@ -71,7 +71,7 @@ chmod -R 775 "$MEDIA"
 # 5. Ask for VPN method
 # --------------------------
 echo "Choose VPN type:"
-select vpn_type in "1) OpenVPN" "2) WireGuard"; do
+select vpn_type in "OpenVPN" "WireGuard"; do
   case $REPLY in
     1)
       VPN_TYPE="openvpn"
