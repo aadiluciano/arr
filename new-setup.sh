@@ -68,58 +68,57 @@ chown -R $USER_ID:$GROUP_ID "$APPDATA"
 chmod -R 775 "$MEDIA"
 
 # --------------------------
-# 5. VPN Choice
+# 5. Ask for VPN method
 # --------------------------
-echo "Which VPN type would you like to use for qBittorrent?"
-echo "1) OpenVPN (username/password)"
-echo "2) WireGuard (paste full config file)"
-read -p "Enter choice [1 or 2]: " VPN_CHOICE
+echo "Choose VPN type:"
+select vpn_type in "openvpn" "wireguard"; do
+  case $vpn_type in
+    openvpn )
+      VPN_TYPE="openvpn"
+      read -p "Enter your VPN provider (e.g. privado, pia, mullvad): " VPN_PROVIDER
+      read -p "Enter your VPN username: " VPN_USER
+      read -s -p "Enter your VPN password: " VPN_PASS
+      echo
+      break
+      ;;
+    wireguard )
+      VPN_TYPE="wireguard"
+      echo "Paste your full WireGuard .conf file contents (end with CTRL+D):"
+      WG_CONF="$CONFIG/gluetun/wireguard.conf"
+      cat > "$WG_CONF"
+      echo "WireGuard config saved to $WG_CONF"
+      VPN_PROVIDER="custom"
+      VPN_USER=""
+      VPN_PASS=""
+      break
+      ;;
+  esac
+done
 
+# --------------------------
+# 6. Create .env file
+# --------------------------
 ENV_FILE="$COMPOSE/.env"
 if [ -f "$ENV_FILE" ]; then
     echo "Backing up existing .env file"
     cp "$ENV_FILE" "$ENV_FILE.bak.$(date +%F-%T)"
 fi
 
-if [ "$VPN_CHOICE" == "1" ]; then
-    read -p "Enter your PrivadoVPN username: " VPN_USER
-    read -sp "Enter your PrivadoVPN password: " VPN_PASS
-    echo
-    cat > "$ENV_FILE" <<EOL
+cat > "$ENV_FILE" <<EOL
 PUID=$USER_ID
 PGID=$GROUP_ID
 TZ=$TZ
-VPN_TYPE=openvpn
-VPN_SERVICE_PROVIDER=privado
-OPENVPN_USER=$VPN_USER
-OPENVPN_PASSWORD=$VPN_PASS
+VPN_TYPE=$VPN_TYPE
+VPN_PROVIDER=$VPN_PROVIDER
+VPN_USER=$VPN_USER
+VPN_PASS=$VPN_PASS
 TS_AUTHKEY=your_tailscale_authkey
 EOL
-    WG_MODE="false"
-elif [ "$VPN_CHOICE" == "2" ]; then
-    echo "Paste the full contents of your Privado WireGuard .conf file below."
-    echo "End input with CTRL+D when finished."
-    WG_CONF_PATH="$CONFIG/gluetun/wg0.conf"
-    cat > "$WG_CONF_PATH"
-    cat > "$ENV_FILE" <<EOL
-PUID=$USER_ID
-PGID=$GROUP_ID
-TZ=$TZ
-VPN_TYPE=wireguard
-VPN_SERVICE_PROVIDER=custom
-WIREGUARD_CONFIG_FILE=/gluetun/wg0.conf
-TS_AUTHKEY=your_tailscale_authkey
-EOL
-    WG_MODE="true"
-else
-    echo "Invalid choice. Exiting."
-    exit 1
-fi
 
 echo "Created .env file at $ENV_FILE"
 
 # --------------------------
-# 6. Backup old docker-compose.yml if exists
+# 7. Backup old docker-compose.yml if exists
 # --------------------------
 COMPOSE_FILE="$COMPOSE/docker-compose.yml"
 if [ -f "$COMPOSE_FILE" ]; then
@@ -128,7 +127,7 @@ if [ -f "$COMPOSE_FILE" ]; then
 fi
 
 # --------------------------
-# 7. Generate docker-compose.yml
+# 8. Generate docker-compose.yml
 # --------------------------
 echo "=== Generating docker-compose.yml ==="
 cat > "$COMPOSE_FILE" <<EOL
@@ -213,10 +212,15 @@ services:
       - .env
     volumes:
       - $CONFIG/gluetun:/gluetun
-    ports:
-      - "8080:8080"
-      - "6881:6881/tcp"
-      - "6881:6881/udp"
+EOL
+
+if [ "$VPN_TYPE" = "wireguard" ]; then
+cat >> "$COMPOSE_FILE" <<EOL
+      - $CONFIG/gluetun/wireguard.conf:/gluetun/wireguard.conf
+EOL
+fi
+
+cat >> "$COMPOSE_FILE" <<EOL
     networks:
       - vpn_net
     restart: unless-stopped
@@ -230,6 +234,8 @@ services:
       - $MEDIA/downloads:/downloads
       - $CONFIG/qbittorrent:/config
     network_mode: service:gluetun
+    ports:
+      - "8080:8080"
     depends_on:
       - gluetun
     restart: unless-stopped
@@ -253,20 +259,20 @@ networks:
 EOL
 
 # --------------------------
-# 8. Stop and remove old containers
+# 9. Stop and remove old containers
 # --------------------------
 echo "=== Stopping and removing old containers ==="
 docker compose -f "$COMPOSE_FILE" down
 docker ps -a | grep -E 'radarr|sonarr|jellyfin|prowlarr|jellyseerr|qbittorrent|gluetun|tailscale' | awk '{print $1}' | xargs -r docker rm -f
 
 # --------------------------
-# 9. Bring up containers
+# 10. Bring up containers
 # --------------------------
 echo "=== Bringing up containers with new UID/GID ==="
 docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --remove-orphans
 
 # --------------------------
-# 10. Instructions
+# 11. Instructions
 # --------------------------
 echo "=== Setup complete ==="
 echo "Verify UID/GID inside containers (example for Radarr):"
