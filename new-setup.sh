@@ -149,6 +149,7 @@ services:
       - 7878:7878
     networks:
       - app_net
+      - vpn_net      
     restart: unless-stopped
 
   sonarr:
@@ -164,6 +165,7 @@ services:
       - 8989:8989
     networks:
       - app_net
+      - vpn_net      
     restart: unless-stopped
 
   jellyfin:
@@ -191,6 +193,7 @@ services:
       - 9696:9696
     networks:
       - app_net
+      - vpn_net      
     restart: unless-stopped
 
   jellyseerr:
