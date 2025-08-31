@@ -56,13 +56,16 @@ done
 
 7. Set up qBittorrent WebUI Credentials
 
-	a.	Open qBittorrent WebUI http://<LAN_IP>:8080
-	b.	Navigate to Tools → Options → Web UI
-	c.	Set:
-	•	Username
-	•	Password
-	•	Enable authentication
-	d.	Save settings.
+Open qBittorrent WebUI http://<LAN_IP>:8080
+
+Navigate to Tools → Options → Web UI
+
+Set:
+Username
+Password
+Enable authentication
+
+Save settings.
 
 8. Verify VPN Routing
 
