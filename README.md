@@ -38,6 +38,7 @@ docker compose -f /mnt/<POOL>/appdata/compose/docker-compose.yml ps
 Expected apps/services:
 
 Container (Description)
+
 radarr (Movie manager)
 sonarr (TV manager)
 jellyfin (Media server)
