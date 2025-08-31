@@ -10,7 +10,7 @@ TrueNAS SCALE Media Server Setup — All-in-One Guide
 
    Reusable Tailscale auth key (https://login.tailscale.com/admin/settings/keys)
 
-3. Load the .sh file onto your system.
+2. Load the .sh file onto your system.
 
 wget URL to RAW .sh script
 
@@ -131,7 +131,7 @@ qBittorrent (http://<TAILSCALE_IP>:8080)
 	•	Test each indexer → Ensure status shows OK
 	e.	Save changes → Prowlarr will now automatically manage indexers for Radarr and Sonarr
 
-14. Link Jellyseerr to Radarr and Sonarr
+13. Link Jellyseerr to Radarr and Sonarr
 
 	a.	Open Jellyseerr WebUI → Settings → Movie & TV → Connectors
 	b.	Add Radarr:
