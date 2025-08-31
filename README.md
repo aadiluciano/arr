@@ -3,10 +3,10 @@ arr-srack
 TrueNAS SCALE Media Server Setup — All-in-One Guide
 
 1. Pre-requisites
-   
-	•	TrueNAS SCALE installed and running
-	•	VPN credentials (OpenVPN or WireGuard conf)
-	•	Reusable Tailscale auth key (https://login.tailscale.com/admin/settings/keys)
+
+   TrueNAS SCALE installed and running
+   VPN credentials (OpenVPN or WireGuard conf)
+   Reusable Tailscale auth key (https://login.tailscale.com/admin/settings/keys)
 
 3. Load the .sh file onto your system.
 
@@ -18,11 +18,11 @@ system.
 bash setup_media_server.sh
 
 4. Follow the prompts:
-   
-	•	Enter pool name
-	•	Select VPN type (OpenVPN or WireGuard)
-	•	Enter VPN credentials or paste WireGuard conf
-	•	Paste your Tailscale reusable auth key
+
+   Enter pool name
+   Select VPN type (OpenVPN or WireGuard)
+   Enter VPN credentials or paste WireGuard conf
+   Paste your Tailscale reusable auth key
 
 The script will create the file structure, set ownership/permissions, generate .env and docker-compose.yml, and start all containers.
 
