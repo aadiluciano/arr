@@ -21,7 +21,6 @@ CONFIG="$APPDATA/config"
 # Detect current user UID/GID
 USER_ID=$(id -u)
 GROUP_ID=$(id -g)
-
 echo "Detected UID=$USER_ID and GID=$GROUP_ID for current user"
 
 # Timezone
@@ -99,7 +98,15 @@ select vpn_type in "OpenVPN" "WireGuard"; do
 done
 
 # --------------------------
-# 6. Create .env file
+# 6. Ask for Tailscale auth key
+# --------------------------
+echo ""
+echo "To enable remote access with Tailscale, you need a reusable auth key."
+echo "Go to https://login.tailscale.com/admin/settings/keys to generate a key."
+read -p "Paste your Tailscale reusable auth key here: " TS_AUTHKEY
+
+# --------------------------
+# 7. Create .env file
 # --------------------------
 ENV_FILE="$COMPOSE/.env"
 if [ -f "$ENV_FILE" ]; then
@@ -115,13 +122,13 @@ VPN_TYPE=$VPN_TYPE
 VPN_PROVIDER=$VPN_PROVIDER
 VPN_USER=$VPN_USER
 VPN_PASS=$VPN_PASS
-TS_AUTHKEY=your_tailscale_authkey
+TS_AUTHKEY=$TS_AUTHKEY
 EOL
 
 echo "Created .env file at $ENV_FILE"
 
 # --------------------------
-# 7. Backup old docker-compose.yml if exists
+# 8. Backup old docker-compose.yml if exists
 # --------------------------
 COMPOSE_FILE="$COMPOSE/docker-compose.yml"
 if [ -f "$COMPOSE_FILE" ]; then
@@ -130,7 +137,7 @@ if [ -f "$COMPOSE_FILE" ]; then
 fi
 
 # --------------------------
-# 8. Generate docker-compose.yml
+# 9. Generate docker-compose.yml
 # --------------------------
 echo "=== Generating docker-compose.yml ==="
 cat > "$COMPOSE_FILE" <<EOL
@@ -149,7 +156,7 @@ services:
       - 7878:7878
     networks:
       - app_net
-      - vpn_net      
+      - vpn_net
     restart: unless-stopped
 
   sonarr:
@@ -165,7 +172,7 @@ services:
       - 8989:8989
     networks:
       - app_net
-      - vpn_net      
+      - vpn_net
     restart: unless-stopped
 
   jellyfin:
@@ -193,7 +200,7 @@ services:
       - 9696:9696
     networks:
       - app_net
-      - vpn_net      
+      - vpn_net
     restart: unless-stopped
 
   jellyseerr:
@@ -265,29 +272,47 @@ networks:
 EOL
 
 # --------------------------
-# 9. Stop and remove old containers
+# 10. Stop and remove old containers
 # --------------------------
 echo "=== Stopping and removing old containers ==="
 docker compose -f "$COMPOSE_FILE" down
 docker ps -a | grep -E 'radarr|sonarr|jellyfin|prowlarr|jellyseerr|qbittorrent|gluetun|tailscale' | awk '{print $1}' | xargs -r docker rm -f
 
 # --------------------------
-# 10. Bring up containers
+# 11. Bring up containers
 # --------------------------
 echo "=== Bringing up containers with new UID/GID ==="
 docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --remove-orphans
 
 # --------------------------
-# 11. Instructions
+# 12. Instructions
 # --------------------------
 echo "=== Setup complete ==="
+echo ""
 echo "Verify UID/GID inside containers (example for Radarr):"
-echo "docker exec -it radarr id  (should show uid=$USER_ID gid=$GROUP_ID)"
+echo "  docker exec -it radarr id  (should show uid=$USER_ID gid=$GROUP_ID)"
 echo ""
-echo "qBittorrent WebUI is accessible at http://<server_ip>:8080"
-echo "Radarr/Sonarr root folders already mapped:"
-echo "  /movies  -> Radarr"
-echo "  /tv      -> Sonarr"
-echo "Downloads folder already mapped to qBittorrent"
+echo "Access your applications:"
+echo "  - Radarr: http://<LAN_IP>:7878"
+echo "  - Sonarr: http://<LAN_IP>:8989"
+echo "  - Jellyfin: http://<LAN_IP>:8096"
+echo "  - Prowlarr: http://<LAN_IP>:9696"
+echo "  - Jellyseerr: http://<LAN_IP>:5055"
 echo ""
-echo "Tailscale should now allow remote access to all containers."
+echo "qBittorrent WebUI is running behind your VPN (Gluetun):"
+echo "  - From your LAN: http://<LAN_IP>:8080"
+echo "  - From outside your LAN: use Tailscale IP of your server"
+echo ""
+echo "Tailscale should now allow remote access to all containers:"
+echo "  - Use your Tailscale IP to connect securely from another device"
+echo ""
+echo "Remember:"
+echo "  - Your torrent traffic goes through the VPN (Gluetun)."
+echo "  - Your other apps (Radarr, Sonarr, Prowlarr, Jellyseerr, Jellyfin) remain accessible on your LAN by default."
+echo ""
+echo "To update or check container status:"
+echo "  docker compose -f $COMPOSE_FILE ps"
+echo "  docker compose -f $COMPOSE_FILE logs -f <container_name>"
+echo ""
+echo "Your .env file is located at $ENV_FILE"
+echo "Make sure TS_AUTHKEY is set correctly for Tailscale to work."
