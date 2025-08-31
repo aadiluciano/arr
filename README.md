@@ -40,12 +40,12 @@ Expected apps/services:
 Container (Description)
 <br />radarr (Movie manager)
 <br />sonarr (TV manager)
-jellyfin (Media server)
-prowlarr (Indexer manager)
-jellyseerr (Media request system)
-gluetun (VPN container)
-qbittorrent (Torrent client) (VPN-protected)
-tailscale (Remote access service)
+<br />jellyfin (Media server)
+<br />prowlarr (Indexer manager)
+<br />jellyseerr (Media request system)
+<br />gluetun (VPN container)
+<br />qbittorrent (Torrent client) (VPN-protected)
+<br />tailscale (Remote access service)
 
 6. Verify Matching UID/GID for All Apps
 
@@ -61,9 +61,9 @@ Open qBittorrent WebUI http://<LAN_IP>:8080
 Navigate to Tools → Options → Web UI
 
 Set:
-Username
-Password
-Enable authentication
+<br />Username
+<br />Password
+<br />Enable authentication
 
 Save settings.
 
@@ -85,12 +85,12 @@ Verify qBittorrent VPN Routing
 9. Check App Access on LAN
 
 App (URL)
-Radarr (http://<LAN_IP>:7878)
-Sonarr (http://<LAN_IP>:8989)
-Jellyfin (http://<LAN_IP>:8096)
-Prowlarr (http://<LAN_IP>:9696)
-Jellyseerr (http://<LAN_IP>:5055)
-qBittorrent (http://<LAN_IP>:8080) (behind VPN)
+<br />Radarr (http://<LAN_IP>:7878)
+<br />Sonarr (http://<LAN_IP>:8989)
+<br />Jellyfin (http://<LAN_IP>:8096)
+<br />Prowlarr (http://<LAN_IP>:9696)
+<br />Jellyseerr (http://<LAN_IP>:5055)
+<br />qBittorrent (http://<LAN_IP>:8080) (behind VPN)
 
 10. Tailscale Remote Access
 
@@ -101,12 +101,12 @@ docker exec -it tailscale tailscale ip
 b. Access apps remotely using Tailscale IP:
 
 App (URL)
-Radarr (http://<TAILSCALE_IP>:7878)
-Sonarr (http://<TAILSCALE_IP>:8989)
-Jellyfin (http://<TAILSCALE_IP>:8096)
-Prowlarr (http://<TAILSCALE_IP>:9696)
-Jellyseerr (http://<TAILSCALE_IP>:5055)
-qBittorrent (http://<TAILSCALE_IP>:8080)
+<br />Radarr (http://<TAILSCALE_IP>:7878)
+<br />Sonarr (http://<TAILSCALE_IP>:8989)
+<br />Jellyfin (http://<TAILSCALE_IP>:8096)
+<br />Prowlarr (http://<TAILSCALE_IP>:9696)
+<br />Jellyseerr (http://<TAILSCALE_IP>:5055)
+<br />qBittorrent (http://<TAILSCALE_IP>:8080)
 
 11. Link Apps to qBittorrent
 
