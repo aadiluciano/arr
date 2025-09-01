@@ -2,12 +2,9 @@
 
 # ==========================
 # TrueNAS SCALE Media Server Setup with Gluetun VPN
-# Supports OpenVPN or WireGuard using secrets
+# Full media stack with secrets
 # ==========================
 
-# --------------------------
-# 0. Target user UID/GID
-# --------------------------
 TARGET_UID=950
 TARGET_GID=950
 echo "Target UID:GID = $TARGET_UID:$TARGET_GID"
@@ -17,7 +14,6 @@ echo "Target UID:GID = $TARGET_UID:$TARGET_GID"
 # --------------------------
 read -p "Enter your TrueNAS pool name: " POOL
 
-# Paths
 MEDIA="/mnt/$POOL/media"
 APPDATA="/mnt/$POOL/appdata"
 COMPOSE="$APPDATA/compose"
@@ -26,7 +22,7 @@ GLUETUN_CONFIG="$CONFIG/gluetun"
 GLUETUN_SECRETS="$GLUETUN_CONFIG/secrets"
 
 # --------------------------
-# 2. Detect real UID/GID (even under sudo su)
+# 2. Detect real UID/GID
 # --------------------------
 if [ -n "$SUDO_UID" ] && [ -n "$SUDO_GID" ]; then
     REAL_UID=$SUDO_UID
@@ -40,7 +36,6 @@ echo "Running script as UID:$REAL_UID GID:$REAL_GID"
 # --------------------------
 # 3. Create datasets if missing
 # --------------------------
-echo "=== Creating datasets if missing ==="
 zfs list "$POOL/media" &>/dev/null || zfs create "$POOL/media"
 zfs list "$POOL/appdata" &>/dev/null || zfs create "$POOL/appdata"
 
@@ -48,7 +43,6 @@ zfs list "$POOL/appdata" &>/dev/null || zfs create "$POOL/appdata"
 # 4. Create media subfolders
 # --------------------------
 MEDIA_SUBS=("movies" "tv" "music" "downloads" "downloads/complete" "downloads/incomplete")
-echo "=== Creating media subfolders ==="
 for folder in "${MEDIA_SUBS[@]}"; do
     mkdir -p "$MEDIA/$folder"
 done
@@ -57,7 +51,6 @@ done
 # 5. Create appdata config folders
 # --------------------------
 CONFIG_FOLDERS=("radarr" "sonarr" "jellyfin" "prowlarr" "jellyseerr" "gluetun" "qbittorrent" "tailscale")
-echo "=== Creating appdata config folders ==="
 for folder in "${CONFIG_FOLDERS[@]}"; do
     mkdir -p "$CONFIG/$folder"
 done
@@ -66,7 +59,6 @@ mkdir -p "$COMPOSE"
 # --------------------------
 # 6. Set ownership and permissions
 # --------------------------
-echo "=== Setting ownership to UID:$TARGET_UID GID:$TARGET_GID ==="
 chown -R $TARGET_UID:$TARGET_GID "$MEDIA"
 chown -R $TARGET_UID:$TARGET_GID "$APPDATA"
 chmod -R 775 "$MEDIA"
@@ -84,50 +76,40 @@ select vpn_type in "OpenVPN" "WireGuard"; do
       read -p "Enter VPN username: " VPN_USER
       read -s -p "Enter VPN password: " VPN_PASS
       echo
-
-      # Clear existing secrets
       rm -rf "$GLUETUN_SECRETS"
       mkdir -p "$GLUETUN_SECRETS"
-
-      # Create auth file for OpenVPN
       echo -e "$VPN_USER\n$VPN_PASS" > "$GLUETUN_SECRETS/auth.conf"
       chmod 600 "$GLUETUN_SECRETS/auth.conf"
-
       break
       ;;
     2)
       VPN_TYPE="wireguard"
-      echo "Paste your WireGuard config (.conf) contents (end with CTRL+D):"
+      rm -rf "$GLUETUN_SECRETS"
       mkdir -p "$GLUETUN_SECRETS"
+      echo "Paste your WireGuard .conf contents (end with CTRL+D):"
       cat > "$GLUETUN_SECRETS/wg0.conf"
-
-      echo "Paste your WireGuard private key:"
+      echo "WireGuard private key:"
       read -s WG_PRIVATE_KEY
       echo "$WG_PRIVATE_KEY" > "$GLUETUN_SECRETS/wireguard_private_key"
-
-      echo "Paste your WireGuard preshared key (if any, else leave blank):"
+      echo "WireGuard preshared key (if any):"
       read -s WG_PSK
       echo "$WG_PSK" > "$GLUETUN_SECRETS/wireguard_preshared_key"
-
-      echo "Paste your WireGuard addresses (comma separated, e.g., 10.13.13.2/32):"
+      echo "WireGuard addresses (e.g., 10.13.13.2/32):"
       read WG_ADDR
       echo "$WG_ADDR" > "$GLUETUN_SECRETS/wireguard_addresses"
-
       chmod 600 "$GLUETUN_SECRETS"/*
       break
       ;;
     *)
-      echo "Invalid option. Please enter 1 or 2."
+      echo "Invalid option. Enter 1 or 2."
       ;;
   esac
 done
 
 # --------------------------
-# 8. Ask for Tailscale auth key
+# 8. Tailscale auth key
 # --------------------------
-echo ""
-echo "To enable remote access with Tailscale, you need a reusable auth key."
-read -p "Paste your Tailscale reusable auth key here: " TS_AUTHKEY
+read -p "Paste your Tailscale reusable auth key: " TS_AUTHKEY
 
 # --------------------------
 # 9. Create .env file
@@ -141,7 +123,6 @@ VPN_TYPE=$VPN_TYPE
 VPN_PROVIDER=$VPN_PROVIDER
 TS_AUTHKEY=$TS_AUTHKEY
 EOL
-chown $TARGET_UID:$TARGET_GID "$ENV_FILE"
 chmod 640 "$ENV_FILE"
 
 # --------------------------
@@ -200,14 +181,98 @@ cat >> "$COMPOSE_FILE" <<EOL
       - $MEDIA/downloads:/downloads
     restart: unless-stopped
 
-# ... Repeat the rest of your media services as before ...
+  radarr:
+    image: linuxserver/radarr
+    container_name: radarr
+    networks:
+      - app_net
+    environment:
+      - PUID=$TARGET_UID
+      - PGID=$TARGET_GID
+    volumes:
+      - $CONFIG/radarr:/config
+      - $MEDIA/movies:/movies
+    ports:
+      - 7878:7878
+    restart: unless-stopped
+
+  sonarr:
+    image: linuxserver/sonarr
+    container_name: sonarr
+    networks:
+      - app_net
+    environment:
+      - PUID=$TARGET_UID
+      - PGID=$TARGET_GID
+    volumes:
+      - $CONFIG/sonarr:/config
+      - $MEDIA/tv:/tv
+      - $MEDIA/downloads:/downloads
+    ports:
+      - 8989:8989
+    restart: unless-stopped
+
+  jellyfin:
+    image: linuxserver/jellyfin
+    container_name: jellyfin
+    networks:
+      - app_net
+    environment:
+      - PUID=$TARGET_UID
+      - PGID=$TARGET_GID
+    volumes:
+      - $CONFIG/jellyfin:/config
+      - $MEDIA:/media
+    ports:
+      - 8096:8096
+    restart: unless-stopped
+
+  prowlarr:
+    image: linuxserver/prowlarr
+    container_name: prowlarr
+    networks:
+      - app_net
+    environment:
+      - PUID=$TARGET_UID
+      - PGID=$TARGET_GID
+    volumes:
+      - $CONFIG/prowlarr:/config
+    ports:
+      - 9696:9696
+    restart: unless-stopped
+
+  jellyseerr:
+    image: fallenbagel/jellyseerr
+    container_name: jellyseerr
+    networks:
+      - app_net
+    environment:
+      - PUID=$TARGET_UID
+      - PGID=$TARGET_GID
+    volumes:
+      - $CONFIG/jellyseerr:/config
+    ports:
+      - 5055:5055
+    restart: unless-stopped
+
+  tailscale:
+    image: tailscale/tailscale
+    container_name: tailscale
+    network_mode: "host"
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    environment:
+      - TS_AUTHKEY=$TS_AUTHKEY
+    volumes:
+      - $CONFIG/tailscale:/var/lib/tailscale
+    restart: unless-stopped
 
 networks:
   app_net:
     driver: bridge
 EOL
 
-chown $TARGET_UID:$TARGET_GID "$COMPOSE_FILE"
 chmod 644 "$COMPOSE_FILE"
 
 # --------------------------
@@ -216,4 +281,3 @@ chmod 644 "$COMPOSE_FILE"
 docker compose -f "$COMPOSE_FILE" up -d
 
 echo "=== Setup complete ==="
-echo "All appdata and media folders now owned by UID:$TARGET_UID GID:$TARGET_GID"
