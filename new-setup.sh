@@ -1,15 +1,13 @@
 #!/bin/bash
 
 # ==========================
-# TrueNAS SCALE Media Server Setup (Updated)
+# TrueNAS SCALE Media Server Setup (Final Version)
 # Includes: Radarr, Sonarr, Jellyfin, Prowlarr, Jellyseerr
 #           + Gluetun + qBittorrent (VPN)
 #           + Tailscale (Remote Access)
 # ==========================
 
-# --------------------------
 # 0. Prompt for pool name
-# --------------------------
 read -p "Enter your TrueNAS pool name: " POOL
 
 # Paths
@@ -32,16 +30,12 @@ MEDIA_SUBS=("movies" "tv" "music" "downloads" "downloads/complete" "downloads/in
 # Appdata config folders
 CONFIG_FOLDERS=("radarr" "sonarr" "jellyfin" "prowlarr" "jellyseerr" "gluetun" "qbittorrent" "tailscale")
 
-# --------------------------
 # 1. Create datasets if missing
-# --------------------------
 echo "=== Creating datasets if missing ==="
 zfs list "$POOL/media" &>/dev/null || zfs create "$POOL/media"
 zfs list "$POOL/appdata" &>/dev/null || zfs create "$POOL/appdata"
 
-# --------------------------
 # 2. Create media subfolders
-# --------------------------
 echo "=== Creating media subfolders ==="
 for folder in "${MEDIA_SUBS[@]}"; do
     FULL_PATH="$MEDIA/$folder"
@@ -49,26 +43,20 @@ for folder in "${MEDIA_SUBS[@]}"; do
     echo "Created or exists: $FULL_PATH"
 done
 
-# --------------------------
 # 3. Create appdata config folders
-# --------------------------
 echo "=== Creating appdata config folders ==="
 for folder in "${CONFIG_FOLDERS[@]}"; do
     mkdir -p "$CONFIG/$folder"
 done
 mkdir -p "$COMPOSE"
 
-# --------------------------
 # 4. Set ownership and permissions
-# --------------------------
 echo "=== Setting ownership to UID:$USER_ID GID:$GROUP_ID ==="
 chown -R $USER_ID:$GROUP_ID "$MEDIA"
 chown -R $USER_ID:$GROUP_ID "$APPDATA"
 chmod -R 775 "$MEDIA"
 
-# --------------------------
 # 5. Ask for VPN method
-# --------------------------
 echo "Choose VPN type:"
 select vpn_type in "OpenVPN" "WireGuard"; do
   case $REPLY in
@@ -82,8 +70,9 @@ select vpn_type in "OpenVPN" "WireGuard"; do
       ;;
     2)
       VPN_TYPE="wireguard"
-      echo "Paste your full WireGuard .conf file contents (end with CTRL+D):"
+      mkdir -p "$CONFIG/gluetun"
       WG_CONF="$CONFIG/gluetun/wireguard.conf"
+      echo "Paste your full WireGuard .conf file contents (end with CTRL+D):"
       cat > "$WG_CONF"
       echo "WireGuard config saved to $WG_CONF"
       VPN_PROVIDER="custom"
@@ -97,24 +86,20 @@ select vpn_type in "OpenVPN" "WireGuard"; do
   esac
 done
 
-# --------------------------
 # 6. Ask for Tailscale auth key
-# --------------------------
 echo ""
 echo "To enable remote access with Tailscale, you need a reusable auth key."
 echo "Go to https://login.tailscale.com/admin/settings/keys to generate a key."
 read -p "Paste your Tailscale reusable auth key here: " TS_AUTHKEY
 
-# --------------------------
 # 7. Create .env file
-# --------------------------
 ENV_FILE="$COMPOSE/.env"
 if [ -f "$ENV_FILE" ]; then
     echo "Backing up existing .env file"
-    cp "$ENV_FILE" "$ENV_FILE.bak.$(date +%F-%T)"
+    cp "$ENV_FILE" "$ENV_FILE.bak.$(date +%F-%T)" 2>/dev/null || sudo cp "$ENV_FILE" "$ENV_FILE.bak.$(date +%F-%T)"
 fi
 
-cat > "$ENV_FILE" <<EOL
+cat <<EOL | tee "$ENV_FILE" >/dev/null || sudo tee "$ENV_FILE" >/dev/null
 PUID=$USER_ID
 PGID=$GROUP_ID
 TZ=$TZ
@@ -127,20 +112,16 @@ EOL
 
 echo "Created .env file at $ENV_FILE"
 
-# --------------------------
 # 8. Backup old docker-compose.yml if exists
-# --------------------------
 COMPOSE_FILE="$COMPOSE/docker-compose.yml"
 if [ -f "$COMPOSE_FILE" ]; then
     echo "Backing up existing docker-compose.yml"
-    cp "$COMPOSE_FILE" "$COMPOSE_FILE.bak.$(date +%F-%T)"
+    cp "$COMPOSE_FILE" "$COMPOSE_FILE.bak.$(date +%F-%T)" 2>/dev/null || sudo cp "$COMPOSE_FILE" "$COMPOSE_FILE.bak.$(date +%F-%T)"
 fi
 
-# --------------------------
 # 9. Generate docker-compose.yml
-# --------------------------
 echo "=== Generating docker-compose.yml ==="
-cat > "$COMPOSE_FILE" <<EOL
+cat <<EOL | tee "$COMPOSE_FILE" >/dev/null || sudo tee "$COMPOSE_FILE" >/dev/null
 version: '3.9'
 
 services:
@@ -228,12 +209,12 @@ services:
 EOL
 
 if [ "$VPN_TYPE" = "wireguard" ]; then
-cat >> "$COMPOSE_FILE" <<EOL
+cat <<EOL | tee -a "$COMPOSE_FILE" >/dev/null || sudo tee -a "$COMPOSE_FILE" >/dev/null
       - $CONFIG/gluetun/wireguard.conf:/gluetun/wireguard.conf
 EOL
 fi
 
-cat >> "$COMPOSE_FILE" <<EOL
+cat <<EOL | tee -a "$COMPOSE_FILE" >/dev/null || sudo tee -a "$COMPOSE_FILE" >/dev/null
     networks:
       - vpn_net
     restart: unless-stopped
@@ -271,48 +252,25 @@ networks:
     driver: bridge
 EOL
 
-# --------------------------
 # 10. Stop and remove old containers
-# --------------------------
 echo "=== Stopping and removing old containers ==="
-docker compose -f "$COMPOSE_FILE" down
+docker compose -f "$COMPOSE_FILE" down 2>/dev/null || sudo docker compose -f "$COMPOSE_FILE" down
 docker ps -a | grep -E 'radarr|sonarr|jellyfin|prowlarr|jellyseerr|qbittorrent|gluetun|tailscale' | awk '{print $1}' | xargs -r docker rm -f
 
-# --------------------------
 # 11. Bring up containers
-# --------------------------
 echo "=== Bringing up containers with new UID/GID ==="
-docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --remove-orphans
+docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --remove-orphans 2>/dev/null || \
+sudo docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --remove-orphans
 
-# --------------------------
 # 12. Instructions
-# --------------------------
 echo "=== Setup complete ==="
 echo ""
-echo "Verify UID/GID inside containers (example for Radarr):"
-echo "  docker exec -it radarr id  (should show uid=$USER_ID gid=$GROUP_ID)"
-echo ""
 echo "Access your applications:"
-echo "  - Radarr: http://<LAN_IP>:7878"
-echo "  - Sonarr: http://<LAN_IP>:8989"
-echo "  - Jellyfin: http://<LAN_IP>:8096"
-echo "  - Prowlarr: http://<LAN_IP>:9696"
-echo "  - Jellyseerr: http://<LAN_IP>:5055"
+echo "  - Radarr:      http://<LAN_IP>:7878"
+echo "  - Sonarr:      http://<LAN_IP>:8989"
+echo "  - Jellyfin:    http://<LAN_IP>:8096"
+echo "  - Prowlarr:    http://<LAN_IP>:9696"
+echo "  - Jellyseerr:  http://<LAN_IP>:5055"
+echo "  - qBittorrent: http://<LAN_IP>:8080 (through VPN)"
 echo ""
-echo "qBittorrent WebUI is running behind your VPN (Gluetun):"
-echo "  - From your LAN: http://<LAN_IP>:8080"
-echo "  - From outside your LAN: use Tailscale IP of your server"
-echo ""
-echo "Tailscale should now allow remote access to all containers:"
-echo "  - Use your Tailscale IP to connect securely from another device"
-echo ""
-echo "Remember:"
-echo "  - Your torrent traffic goes through the VPN (Gluetun)."
-echo "  - Your other apps (Radarr, Sonarr, Prowlarr, Jellyseerr, Jellyfin) remain accessible on your LAN by default."
-echo ""
-echo "To update or check container status:"
-echo "  docker compose -f $COMPOSE_FILE ps"
-echo "  docker compose -f $COMPOSE_FILE logs -f <container_name>"
-echo ""
-echo "Your .env file is located at $ENV_FILE"
-echo "Make sure TS_AUTHKEY is set correctly for Tailscale to work."
+echo "Tailscale is running in host mode. Use your Tailscale IP for remote access."
