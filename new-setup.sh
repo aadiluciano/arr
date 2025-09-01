@@ -1,10 +1,7 @@
 #!/bin/bash
 
 # ==========================
-# TrueNAS SCALE Media Server Setup (Final Version)
-# Includes: Radarr, Sonarr, Jellyfin, Prowlarr, Jellyseerr
-#           + Gluetun + qBittorrent (VPN)
-#           + Tailscale (Remote Access)
+# TrueNAS SCALE Media Server Setup (with sudo-safe UID/GID detection)
 # ==========================
 
 # 0. Prompt for pool name
@@ -16,10 +13,15 @@ APPDATA="/mnt/$POOL/appdata"
 COMPOSE="$APPDATA/compose"
 CONFIG="$APPDATA/config"
 
-# Detect current user UID/GID
-USER_ID=$(id -u)
-GROUP_ID=$(id -g)
-echo "Detected UID=$USER_ID and GID=$GROUP_ID for current user"
+# Detect correct UID/GID even if run with sudo
+if [ -n "$SUDO_UID" ] && [ -n "$SUDO_GID" ]; then
+    USER_ID=$SUDO_UID
+    GROUP_ID=$SUDO_GID
+else
+    USER_ID=$(id -u)
+    GROUP_ID=$(id -g)
+fi
+echo "Using UID=$USER_ID and GID=$GROUP_ID"
 
 # Timezone
 TZ="America/Toronto"
@@ -94,12 +96,19 @@ read -p "Paste your Tailscale reusable auth key here: " TS_AUTHKEY
 
 # 7. Create .env file
 ENV_FILE="$COMPOSE/.env"
-if [ -f "$ENV_FILE" ]; then
-    echo "Backing up existing .env file"
-    cp "$ENV_FILE" "$ENV_FILE.bak.$(date +%F-%T)" 2>/dev/null || sudo cp "$ENV_FILE" "$ENV_FILE.bak.$(date +%F-%T)"
+
+if [ ! -w "$COMPOSE" ]; then
+    echo "⚠️ ERROR: Cannot write to $COMPOSE"
+    echo "Fix with: sudo chown -R $(whoami):$(whoami) $APPDATA"
+    exit 1
 fi
 
-cat <<EOL | tee "$ENV_FILE" >/dev/null || sudo tee "$ENV_FILE" >/dev/null
+if [ -f "$ENV_FILE" ]; then
+    echo "Backing up existing .env file"
+    cp "$ENV_FILE" "$ENV_FILE.bak.$(date +%F-%T)"
+fi
+
+cat > "$ENV_FILE" <<EOL
 PUID=$USER_ID
 PGID=$GROUP_ID
 TZ=$TZ
@@ -112,165 +121,153 @@ EOL
 
 echo "Created .env file at $ENV_FILE"
 
-# 8. Backup old docker-compose.yml if exists
+# 8. Create docker-compose.yml
 COMPOSE_FILE="$COMPOSE/docker-compose.yml"
+
 if [ -f "$COMPOSE_FILE" ]; then
     echo "Backing up existing docker-compose.yml"
-    cp "$COMPOSE_FILE" "$COMPOSE_FILE.bak.$(date +%F-%T)" 2>/dev/null || sudo cp "$COMPOSE_FILE" "$COMPOSE_FILE.bak.$(date +%F-%T)"
+    cp "$COMPOSE_FILE" "$COMPOSE_FILE.bak.$(date +%F-%T)"
 fi
 
-# 9. Generate docker-compose.yml
-echo "=== Generating docker-compose.yml ==="
-cat <<EOL | tee "$COMPOSE_FILE" >/dev/null || sudo tee "$COMPOSE_FILE" >/dev/null
-version: '3.9'
-
+cat > "$COMPOSE_FILE" <<'EOL'
+version: "3.8"
 services:
-  radarr:
-    image: linuxserver/radarr:latest
-    container_name: radarr
-    env_file:
-      - .env
-    volumes:
-      - $MEDIA/movies:/movies
-      - $CONFIG/radarr:/config
-    ports:
-      - 7878:7878
-    networks:
-      - app_net
-      - vpn_net
-    restart: unless-stopped
-
-  sonarr:
-    image: linuxserver/sonarr:latest
-    container_name: sonarr
-    env_file:
-      - .env
-    volumes:
-      - $MEDIA/tv:/tv
-      - $MEDIA/downloads:/downloads
-      - $CONFIG/sonarr:/config
-    ports:
-      - 8989:8989
-    networks:
-      - app_net
-      - vpn_net
-    restart: unless-stopped
-
-  jellyfin:
-    image: linuxserver/jellyfin:latest
-    container_name: jellyfin
-    env_file:
-      - .env
-    volumes:
-      - $MEDIA:/media
-      - $CONFIG/jellyfin:/config
-    ports:
-      - 8096:8096
-    networks:
-      - app_net
-    restart: unless-stopped
-
-  prowlarr:
-    image: linuxserver/prowlarr:latest
-    container_name: prowlarr
-    env_file:
-      - .env
-    volumes:
-      - $CONFIG/prowlarr:/config
-    ports:
-      - 9696:9696
-    networks:
-      - app_net
-      - vpn_net
-    restart: unless-stopped
-
-  jellyseerr:
-    image: fallenbagel/jellyseerr:latest
-    container_name: jellyseerr
-    env_file:
-      - .env
-    volumes:
-      - $CONFIG/jellyseerr:/config
-    ports:
-      - 5055:5055
-    networks:
-      - app_net
-    restart: unless-stopped
-
   gluetun:
     image: qmcgaw/gluetun
     container_name: gluetun
     cap_add:
       - NET_ADMIN
-    env_file:
-      - .env
+    devices:
+      - /dev/net/tun
     volumes:
-      - $CONFIG/gluetun:/gluetun
-EOL
-
-if [ "$VPN_TYPE" = "wireguard" ]; then
-cat <<EOL | tee -a "$COMPOSE_FILE" >/dev/null || sudo tee -a "$COMPOSE_FILE" >/dev/null
-      - $CONFIG/gluetun/wireguard.conf:/gluetun/wireguard.conf
-EOL
-fi
-
-cat <<EOL | tee -a "$COMPOSE_FILE" >/dev/null || sudo tee -a "$COMPOSE_FILE" >/dev/null
-    networks:
-      - vpn_net
+      - ${CONFIG}/gluetun:/gluetun
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+      - VPN_SERVICE_PROVIDER=${VPN_PROVIDER}
+      - VPN_TYPE=${VPN_TYPE}
+      - OPENVPN_USER=${VPN_USER}
+      - OPENVPN_PASSWORD=${VPN_PASS}
+      - WIREGUARD_CONFIG_FILE=/gluetun/wireguard.conf
+    ports:
+      - 8096:8096 # Jellyfin
+      - 8080:8080 # qBittorrent
+      - 5055:5055 # Prowlarr
+      - 8989:8989 # Sonarr
+      - 7878:7878 # Radarr
+      - 5055:5055 # Jellyseerr
     restart: unless-stopped
 
   qbittorrent:
     image: linuxserver/qbittorrent
     container_name: qbittorrent
-    env_file:
-      - .env
-    volumes:
-      - $MEDIA/downloads:/downloads
-      - $CONFIG/qbittorrent:/config
-    network_mode: service:gluetun
-    ports:
-      - "8080:8080"
+    network_mode: "service:gluetun"
     depends_on:
       - gluetun
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ${CONFIG}/qbittorrent:/config
+      - ${MEDIA}/downloads:/downloads
+    restart: unless-stopped
+
+  radarr:
+    image: linuxserver/radarr
+    container_name: radarr
+    network_mode: "service:gluetun"
+    depends_on:
+      - gluetun
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ${CONFIG}/radarr:/config
+      - ${MEDIA}/movies:/movies
+      - ${MEDIA}/downloads:/downloads
+    restart: unless-stopped
+
+  sonarr:
+    image: linuxserver/sonarr
+    container_name: sonarr
+    network_mode: "service:gluetun"
+    depends_on:
+      - gluetun
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ${CONFIG}/sonarr:/config
+      - ${MEDIA}/tv:/tv
+      - ${MEDIA}/downloads:/downloads
+    restart: unless-stopped
+
+  prowlarr:
+    image: linuxserver/prowlarr
+    container_name: prowlarr
+    network_mode: "service:gluetun"
+    depends_on:
+      - gluetun
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ${CONFIG}/prowlarr:/config
+    restart: unless-stopped
+
+  jellyseerr:
+    image: fallenbagel/jellyseerr
+    container_name: jellyseerr
+    network_mode: "service:gluetun"
+    depends_on:
+      - gluetun
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ${CONFIG}/jellyseerr:/app/config
+    restart: unless-stopped
+
+  jellyfin:
+    image: linuxserver/jellyfin
+    container_name: jellyfin
+    network_mode: "service:gluetun"
+    depends_on:
+      - gluetun
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ${CONFIG}/jellyfin:/config
+      - ${MEDIA}:/media
     restart: unless-stopped
 
   tailscale:
-    image: tailscale/tailscale:latest
+    image: tailscale/tailscale
     container_name: tailscale
+    hostname: truenas-tailscale
+    volumes:
+      - ${CONFIG}/tailscale:/var/lib/tailscale
+      - /dev/net/tun:/dev/net/tun
     cap_add:
       - NET_ADMIN
       - SYS_MODULE
-    network_mode: "host"
-    env_file:
-      - .env
+    environment:
+      - TS_AUTHKEY=${TS_AUTHKEY}
     restart: unless-stopped
-
-networks:
-  vpn_net:
-    driver: bridge
-  app_net:
-    driver: bridge
 EOL
 
-# 10. Stop and remove old containers
-echo "=== Stopping and removing old containers ==="
-docker compose -f "$COMPOSE_FILE" down 2>/dev/null || sudo docker compose -f "$COMPOSE_FILE" down
-docker ps -a | grep -E 'radarr|sonarr|jellyfin|prowlarr|jellyseerr|qbittorrent|gluetun|tailscale' | awk '{print $1}' | xargs -r docker rm -f
+echo "Created docker-compose.yml at $COMPOSE_FILE"
 
-# 11. Bring up containers
-echo "=== Bringing up containers with new UID/GID ==="
-docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --remove-orphans 2>/dev/null || \
-sudo docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --remove-orphans
-
-# 12. Instructions
+# 9. Restart containers
+echo "=== Restarting containers ==="
+docker compose -f "$COMPOSE_FILE" down || true
+docker compose -f "$COMPOSE_FILE" up -d
 echo "=== Setup complete ==="
-echo ""
-echo "Access your applications:"
-echo "  - Radarr:      http://<LAN_IP>:7878"
-echo "  - Sonarr:      http://<LAN_IP>:8989"
-echo "  - Jellyfin:    http://<LAN_IP>:8096"
-echo "  - Prowlarr:    http://<LAN_IP>:9696"
-echo "  - Jellyseerr:  http://<LAN_IP>:5055"
-echo "  - qBittorrent: http://<LAN_IP>:8080 (through VPN)"
-echo ""
-echo "Tailscale is running in host mode. Use your Tailscale IP for remote access."
