@@ -256,17 +256,16 @@ cat >> "$COMPOSE_FILE" <<EOL
     restart: unless-stopped
 
   tailscale:
-    image: tailscale/tailscale
+    image: tailscale/tailscale:latest
     container_name: tailscale
-    network_mode: "host"
+    network_mode: "host"  # important
     cap_add:
       - NET_ADMIN
       - SYS_MODULE
-    environment:
-      - TS_AUTHKEY=$TS_AUTHKEY
     volumes:
-      - $CONFIG/tailscale:/var/lib/tailscale
+      - ./tailscale-data:/var/lib/tailscale
     restart: unless-stopped
+    command: tailscaled
 
 networks:
   app_net:
