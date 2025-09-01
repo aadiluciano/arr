@@ -3,6 +3,7 @@
 # ==========================
 # TrueNAS SCALE Media Server Setup
 # Auto-fix permissions for UID/GID even under sudo su
+# Supports OpenVPN via pasted .ovpn file or WireGuard .conf
 # ==========================
 
 # --------------------------
@@ -72,21 +73,28 @@ chmod -R 775 "$MEDIA"
 chmod -R 775 "$APPDATA"
 
 # --------------------------
-# 7. Ask for VPN method
+# 7. Ask for VPN method and config
 # --------------------------
 echo "Choose VPN type:"
 select vpn_type in "OpenVPN" "WireGuard"; do
   case $REPLY in
     1)
       VPN_TYPE="openvpn"
-      read -p "Enter your VPN provider (e.g., privado, pia, mullvad): " VPN_PROVIDER
-      read -p "Enter your VPN username: " VPN_USER
-      read -s -p "Enter your VPN password: " VPN_PASS
-      echo
+      VPN_PROVIDER="custom"
+      mkdir -p "$CONFIG/gluetun"
+      OVPN_FILE="$CONFIG/gluetun/custom.ovpn"
+      echo "Paste your full OpenVPN .ovpn file contents (end with CTRL+D):"
+      cat > "$OVPN_FILE"
+      chown $TARGET_UID:$TARGET_GID "$OVPN_FILE"
+      chmod 600 "$OVPN_FILE"
+      echo "OpenVPN config saved to $OVPN_FILE"
+      VPN_USER=""
+      VPN_PASS=""
       break
       ;;
     2)
       VPN_TYPE="wireguard"
+      VPN_PROVIDER="custom"
       mkdir -p "$CONFIG/gluetun"
       WG_CONF="$CONFIG/gluetun/wireguard.conf"
       echo "Paste your full WireGuard .conf file contents (end with CTRL+D):"
@@ -94,7 +102,6 @@ select vpn_type in "OpenVPN" "WireGuard"; do
       chown $TARGET_UID:$TARGET_GID "$WG_CONF"
       chmod 600 "$WG_CONF"
       echo "WireGuard config saved to $WG_CONF"
-      VPN_PROVIDER="custom"
       VPN_USER=""
       VPN_PASS=""
       break
@@ -122,7 +129,7 @@ PUID=$TARGET_UID
 PGID=$TARGET_GID
 TZ=America/Toronto
 VPN_TYPE=$VPN_TYPE
-VPN_PROVIDER=$VPN_PROVIDER
+VPN_SERVICE_PROVIDER=$VPN_PROVIDER
 VPN_USER=$VPN_USER
 VPN_PASS=$VPN_PASS
 TS_AUTHKEY=$TS_AUTHKEY
@@ -141,10 +148,12 @@ version: '3.9'
 
 services:
   gluetun:
-    image: qmcgaw/gluetun
+    image: qmcgaw/gluetun:latest
     container_name: gluetun
     cap_add:
       - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
     volumes:
       - $CONFIG/gluetun:/gluetun
 EOL
@@ -152,6 +161,10 @@ EOL
 if [ "$VPN_TYPE" = "wireguard" ]; then
 cat >> "$COMPOSE_FILE" <<EOL
       - $CONFIG/gluetun/wireguard.conf:/gluetun/wireguard.conf
+EOL
+else
+cat >> "$COMPOSE_FILE" <<EOL
+      - $CONFIG/gluetun/custom.ovpn:/gluetun/custom.ovpn
 EOL
 fi
 
@@ -162,8 +175,6 @@ cat >> "$COMPOSE_FILE" <<EOL
       - TZ=America/Toronto
       - VPN_TYPE=$VPN_TYPE
       - VPN_SERVICE_PROVIDER=$VPN_PROVIDER
-      - OPENVPN_USER=$VPN_USER
-      - OPENVPN_PASSWORD=$VPN_PASS
     restart: unless-stopped
 
   qbittorrent:
