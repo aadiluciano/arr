@@ -2,8 +2,8 @@
 
 # ==========================
 # TrueNAS SCALE Media Server Setup
-# Auto-fix permissions for UID/GID even under sudo su
-# Supports OpenVPN via pasted .ovpn file or WireGuard .conf
+# OpenVPN or WireGuard support
+# Automatically cleans previous Gluetun configs
 # ==========================
 
 # --------------------------
@@ -23,6 +23,8 @@ MEDIA="/mnt/$POOL/media"
 APPDATA="/mnt/$POOL/appdata"
 COMPOSE="$APPDATA/compose"
 CONFIG="$APPDATA/config"
+GLUETUN_CONFIG="$CONFIG/gluetun"
+GLUETUN_AUTH="$GLUETUN_CONFIG/auth"
 
 # --------------------------
 # 2. Detect real UID/GID (even under sudo su)
@@ -37,24 +39,30 @@ fi
 echo "Running script as UID:$REAL_UID GID:$REAL_GID"
 
 # --------------------------
-# 3. Create datasets if missing
+# 3. Clean previous Gluetun files
+# --------------------------
+echo "=== Cleaning old Gluetun files ==="
+rm -rf "$GLUETUN_CONFIG"
+mkdir -p "$GLUETUN_CONFIG/auth"
+
+# --------------------------
+# 4. Create datasets if missing
 # --------------------------
 echo "=== Creating datasets if missing ==="
 zfs list "$POOL/media" &>/dev/null || zfs create "$POOL/media"
 zfs list "$POOL/appdata" &>/dev/null || zfs create "$POOL/appdata"
 
 # --------------------------
-# 4. Create media subfolders
+# 5. Create media subfolders
 # --------------------------
 MEDIA_SUBS=("movies" "tv" "music" "downloads" "downloads/complete" "downloads/incomplete")
 echo "=== Creating media subfolders ==="
 for folder in "${MEDIA_SUBS[@]}"; do
     mkdir -p "$MEDIA/$folder"
-    echo "Created or exists: $MEDIA/$folder"
 done
 
 # --------------------------
-# 5. Create appdata config folders
+# 6. Create appdata config folders
 # --------------------------
 CONFIG_FOLDERS=("radarr" "sonarr" "jellyfin" "prowlarr" "jellyseerr" "gluetun" "qbittorrent" "tailscale")
 echo "=== Creating appdata config folders ==="
@@ -64,7 +72,7 @@ done
 mkdir -p "$COMPOSE"
 
 # --------------------------
-# 6. Set ownership and permissions
+# 7. Set ownership and permissions
 # --------------------------
 echo "=== Setting ownership to UID:$TARGET_UID GID:$TARGET_GID ==="
 chown -R $TARGET_UID:$TARGET_GID "$MEDIA"
@@ -73,55 +81,50 @@ chmod -R 775 "$MEDIA"
 chmod -R 775 "$APPDATA"
 
 # --------------------------
-# 7. Ask for VPN method and config
+# 8. Choose VPN type
 # --------------------------
 echo "Choose VPN type:"
 select vpn_type in "OpenVPN" "WireGuard"; do
-  case $REPLY in
-    1)
-      VPN_TYPE="openvpn"
-      VPN_PROVIDER="custom"
-      mkdir -p "$CONFIG/gluetun"
-      OVPN_FILE="$CONFIG/gluetun/custom.ovpn"
-      echo "Paste your full OpenVPN .ovpn file contents (end with CTRL+D):"
-      cat > "$OVPN_FILE"
-      chown $TARGET_UID:$TARGET_GID "$OVPN_FILE"
-      chmod 600 "$OVPN_FILE"
-      echo "OpenVPN config saved to $OVPN_FILE"
-      VPN_USER=""
-      VPN_PASS=""
-      break
-      ;;
-    2)
-      VPN_TYPE="wireguard"
-      VPN_PROVIDER="custom"
-      mkdir -p "$CONFIG/gluetun"
-      WG_CONF="$CONFIG/gluetun/wireguard.conf"
-      echo "Paste your full WireGuard .conf file contents (end with CTRL+D):"
-      cat > "$WG_CONF"
-      chown $TARGET_UID:$TARGET_GID "$WG_CONF"
-      chmod 600 "$WG_CONF"
-      echo "WireGuard config saved to $WG_CONF"
-      VPN_USER=""
-      VPN_PASS=""
-      break
-      ;;
-    *)
-      echo "Invalid option. Please enter 1 or 2."
-      ;;
-  esac
+    case $REPLY in
+        1)
+            VPN_TYPE="openvpn"
+            read -p "Enter VPN provider (e.g., privado, pia, mullvad): " VPN_PROVIDER
+            echo "Paste your OpenVPN .ovpn contents (end with CTRL+D):"
+            cat > "$GLUETUN_CONFIG/custom.ovpn"
+            chmod 600 "$GLUETUN_CONFIG/custom.ovpn"
+            echo "Enter VPN username:"
+            read VPN_USER
+            read -s -p "Enter VPN password: " VPN_PASS
+            echo
+            echo "$VPN_USER
+$VPN_PASS" > "$GLUETUN_AUTH/openvpn-credentials.txt"
+            chmod 600 "$GLUETUN_AUTH/openvpn-credentials.txt"
+            break
+            ;;
+        2)
+            VPN_TYPE="wireguard"
+            echo "Paste your WireGuard .conf contents (end with CTRL+D):"
+            cat > "$GLUETUN_CONFIG/wireguard.conf"
+            chmod 600 "$GLUETUN_CONFIG/wireguard.conf"
+            VPN_PROVIDER="custom"
+            VPN_USER=""
+            VPN_PASS=""
+            break
+            ;;
+        *)
+            echo "Invalid option. Enter 1 or 2."
+            ;;
+    esac
 done
 
 # --------------------------
-# 8. Ask for Tailscale auth key
+# 9. Tailscale auth key
 # --------------------------
-echo ""
-echo "To enable remote access with Tailscale, you need a reusable auth key."
-echo "Go to https://login.tailscale.com/admin/settings/keys to generate a key."
-read -p "Paste your Tailscale reusable auth key here: " TS_AUTHKEY
+echo "To enable Tailscale remote access, provide your reusable auth key:"
+read -p "TS Auth Key: " TS_AUTHKEY
 
 # --------------------------
-# 9. Create .env file
+# 10. Create .env
 # --------------------------
 ENV_FILE="$COMPOSE/.env"
 cat > "$ENV_FILE" <<EOL
@@ -130,41 +133,38 @@ PGID=$TARGET_GID
 TZ=America/Toronto
 VPN_TYPE=$VPN_TYPE
 VPN_SERVICE_PROVIDER=$VPN_PROVIDER
-VPN_USER=$VPN_USER
-VPN_PASS=$VPN_PASS
+OPENVPN_USER=$VPN_USER
+OPENVPN_PASSWORD=$VPN_PASS
 TS_AUTHKEY=$TS_AUTHKEY
 EOL
-chown $TARGET_UID:$TARGET_GID "$ENV_FILE"
 chmod 640 "$ENV_FILE"
-echo "Created .env file at $ENV_FILE"
 
 # --------------------------
-# 10. Create docker-compose.yml
+# 11. Docker Compose
 # --------------------------
 COMPOSE_FILE="$COMPOSE/docker-compose.yml"
-
 cat > "$COMPOSE_FILE" <<EOL
 version: '3.9'
 
 services:
   gluetun:
-    image: qmcgaw/gluetun:latest
+    image: qmcgaw/gluetun
     container_name: gluetun
     cap_add:
       - NET_ADMIN
-    devices:
-      - /dev/net/tun:/dev/net/tun
     volumes:
-      - $CONFIG/gluetun:/gluetun
+      - $GLUETUN_CONFIG:/gluetun
 EOL
 
-if [ "$VPN_TYPE" = "wireguard" ]; then
+# Add VPN-specific mount
+if [ "$VPN_TYPE" = "openvpn" ]; then
 cat >> "$COMPOSE_FILE" <<EOL
-      - $CONFIG/gluetun/wireguard.conf:/gluetun/wireguard.conf
+      - $GLUETUN_CONFIG/custom.ovpn:/gluetun/custom.ovpn
+      - $GLUETUN_AUTH/openvpn-credentials.txt:/gluetun/auth/openvpn-credentials.txt
 EOL
-else
+elif [ "$VPN_TYPE" = "wireguard" ]; then
 cat >> "$COMPOSE_FILE" <<EOL
-      - $CONFIG/gluetun/custom.ovpn:/gluetun/custom.ovpn
+      - $GLUETUN_CONFIG/wireguard.conf:/gluetun/wireguard.conf
 EOL
 fi
 
@@ -175,6 +175,8 @@ cat >> "$COMPOSE_FILE" <<EOL
       - TZ=America/Toronto
       - VPN_TYPE=$VPN_TYPE
       - VPN_SERVICE_PROVIDER=$VPN_PROVIDER
+      - OPENVPN_USER=$VPN_USER
+      - OPENVPN_PASSWORD=$VPN_PASS
     restart: unless-stopped
 
   qbittorrent:
@@ -283,13 +285,11 @@ networks:
     driver: bridge
 EOL
 
-chown $TARGET_UID:$TARGET_GID "$COMPOSE_FILE"
 chmod 644 "$COMPOSE_FILE"
 
 # --------------------------
-# 11. Start containers
+# 12. Start containers
 # --------------------------
 docker compose -f "$COMPOSE_FILE" up -d
 
 echo "=== Setup complete ==="
-echo "All appdata and media folders now owned by UID:$TARGET_UID GID:$TARGET_GID"
