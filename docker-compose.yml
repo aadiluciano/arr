@@ -1,0 +1,162 @@
+services:
+  gluetun:
+    image: qmcgaw/gluetun
+    container_name: gluetun
+    cap_add:
+      - NET_ADMIN
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+      - VPN_TYPE=${VPN_TYPE}
+      - VPN_SERVICE_PROVIDER=custom
+      - WIREGUARD_CONF_SECRETFILE=/run/secrets/wg0.conf
+      - WIREGUARD_PRIVATE_KEY_SECRETFILE=/run/secrets/wireguard_private_key
+      - WIREGUARD_PRESHARED_KEY_SECRETFILE=/run/secrets/wireguard_preshared_key
+      - WIREGUARD_ADDRESSES_SECRETFILE=/run/secrets/wireguard_addresses
+    volumes:
+      - /mnt/pool1/appdata/config/gluetun/secrets:/run/secrets:ro
+    ports:
+    - 8080:8080
+    restart: unless-stopped
+
+  qbittorrent:
+    image: linuxserver/qbittorrent
+    container_name: qbittorrent
+    depends_on:
+      - gluetun
+    network_mode: "service:gluetun"
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+      - WEBUI_PORT=8080
+      - QBT_WEBUI_USERNAME=jimmy
+      - QBT_WEBUI_PASSWORD=asshole
+    volumes:
+      - /mnt/pool1/appdata/config/qbittorrent:/config
+      - /mnt/pool1/media/downloads:/downloads
+    restart: unless-stopped
+
+  radarr:
+      image: linuxserver/radarr
+    container_name: radarr
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+    volumes:
+      - /mnt/pool1/appdata/config/radarr:/config
+      - /mnt/pool1/media/movies:/movies
+      - /mnt/pool1/media/downloads:/downloads
+    ports:
+      - 7878:7878
+    restart: unless-stopped
+    networks:
+      - app_net
+
+  sonarr:
+    image: linuxserver/sonarr
+    container_name: sonarr
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+    volumes:
+      - /mnt/pool1/appdata/config/sonarr:/config
+      - /mnt/pool1/media/tv:/tv
+      - /mnt/pool1/media/downloads:/downloads
+    ports:
+      - 8989:8989
+    restart: unless-stopped
+    networks:
+      - app_net
+
+  prowlarr:
+    image: linuxserver/prowlarr
+    container_name: prowlarr
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+    volumes:
+      - /mnt/pool1/appdata/config/prowlarr:/config
+    ports:
+          - 9696:9696
+    restart: unless-stopped
+    networks:
+      - app_net
+
+  jellyfin:
+    image: linuxserver/jellyfin:latest
+    container_name: jellyfin
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=America/Toronto
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
+    volumes:
+      - /mnt/pool1/media/movies:/media/movies
+      - /mnt/pool1/media/tv:/media/tv
+      - /mnt/pool1/appdata/config/jellyfin:/config
+    ports:
+      - 8096:8096
+    restart: unless-stopped
+    runtime: nvidia
+    networks:
+      - app_net
+
+  jellyseerr:
+    image: fallenbagel/jellyseerr
+    container_name: jellyseerr
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+    volumes:
+      - /mnt/pool1/appdata/config/jellyseerr:/app/config
+    ports:
+      - 5055:5055
+    restart: unless-stopped
+    networks:
+      - app_net
+
+  tailscale:
+      image: tailscale/tailscale:latest
+    container_name: tailscale
+    network_mode: "host"
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    volumes:
+      - /mnt/pool1/appdata/config/tailscale:/var/lib/tailscale
+      - /dev/net/tun:/dev/net/tun
+    restart: unless-stopped
+    command: tailscaled
+
+  jackett:
+    image: linuxserver/jackett
+    container_name: jackett
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - /mnt/pool1/appdata/config/jackett:/config
+    ports:
+      - 9117:9117
+    restart: unless-stopped
+    networks:
+      - app_net
+
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    container_name: flaresolverr
+    restart: unless-stopped
+    ports:
+      - 8191:8191
+    networks:
+      - app_net
+
+networks:
+  app_net:
+    driver: bridge
+  vpn_net:
+    driver: bridge
