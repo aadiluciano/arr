@@ -42,7 +42,7 @@ zfs list "$POOL/appdata" &>/dev/null || zfs create "$POOL/appdata"
 # --------------------------
 # 4. Create media subfolders
 # --------------------------
-MEDIA_SUBS=("movies" "tv" "music" "downloads" "downloads/complete" "downloads/incomplete")
+MEDIA_SUBS=("movies" "tv" "music" "downloads" "downloads/complete" "downloads/incomplete" "Books and Podcasts")
 for folder in "${MEDIA_SUBS[@]}"; do
     mkdir -p "$MEDIA/$folder"
 done
@@ -50,7 +50,7 @@ done
 # --------------------------
 # 5. Create appdata config folders
 # --------------------------
-CONFIG_FOLDERS=("radarr" "sonarr" "jellyfin" "prowlarr" "jellyseerr" "gluetun" "qbittorrent" "tailscale")
+CONFIG_FOLDERS=("radarr" "sonarr" "jellyfin" "prowlarr" "jellyseerr" "gluetun" "qbittorrent" "tailscale" "jackett")
 for folder in "${CONFIG_FOLDERS[@]}"; do
     mkdir -p "$CONFIG/$folder"
 done
@@ -253,6 +253,32 @@ cat >> "$COMPOSE_FILE" <<EOL
       - $CONFIG/jellyseerr:/config
     ports:
       - 5055:5055
+    restart: unless-stopped
+
+  jackett:
+    image: linuxserver/jackett
+    container_name: jackett
+    networks:
+      - app_net
+    environment:
+      - PUID=$TARGET_UID
+      - PGID=$TARGET_GID
+    volumes:
+      - $CONFIG/jackett:/config
+      - $MEDIA/downloads:/downloads
+    ports:
+      - 9117:9117
+    restart: unless-stopped
+
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    container_name: flaresolverr
+    networks:
+      - app_net
+    environment:
+      - LOG_LEVEL=info
+    ports:
+      - 8191:8191
     restart: unless-stopped
 
   tailscale:
