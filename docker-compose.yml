@@ -14,11 +14,78 @@ services:
       - WIREGUARD_PRIVATE_KEY_SECRETFILE=/run/secrets/wireguard_private_key
       - WIREGUARD_PRESHARED_KEY_SECRETFILE=/run/secrets/wireguard_preshared_key
       - WIREGUARD_ADDRESSES_SECRETFILE=/run/secrets/wireguard_addresses
+      - LOCAL_NETWORK=192.168.2.0/24
     volumes:
       - /mnt/pool1/appdata/config/gluetun/secrets:/run/secrets:ro
     ports:
     - 8080:8080
     restart: unless-stopped
+
+#  gluetun_canada:
+#    image: qmcgaw/gluetun
+#    container_name: gluetun_canada
+#    cap_add:
+#      - NET_ADMIN
+#    environment:
+#      - PUID=${PUID}
+#      - PGID=${PGID}
+#      - TZ=${TZ}
+#      - VPN_TYPE=wireguard
+#      - VPN_SERVICE_PROVIDER=custom
+#      - WIREGUARD_CONF_SECRETFILE=/run/secrets/wg0_canada.conf
+#      - WIREGUARD_PRIVATE_KEY_SECRETFILE=/run/secrets/wireguard_private_key
+#      - WIREGUARD_PRESHARED_KEY_SECRETFILE=/run/secrets/wireguard_preshared_key
+#      - WIREGUARD_ADDRESSES_SECRETFILE=/run/secrets/wireguard_addresses
+#      - LOCAL_NETWORK=192.168.2.0/24
+#    volumes:
+#      - /mnt/pool1/appdata/config/gluetun/secrets:/run/secrets:ro
+#    restart: unless-stopped
+#    networks:
+#      - vpn_canada
+#
+#  gluetun_usa:
+#    image: qmcgaw/gluetun
+#    container_name: gluetun_usa
+#    cap_add:
+#      - NET_ADMIN
+#    environment:
+#      - PUID=${PUID}
+#      - PGID=${PGID}
+#      - TZ=${TZ}
+#      - VPN_TYPE=wireguard
+#      - VPN_SERVICE_PROVIDER=custom
+#      - WIREGUARD_CONF_SECRETFILE=/run/secrets/wg0_usa.conf
+#      - WIREGUARD_PRIVATE_KEY_SECRETFILE=/run/secrets/wireguard_private_key
+#      - WIREGUARD_PRESHARED_KEY_SECRETFILE=/run/secrets/wireguard_preshared_key
+#      - WIREGUARD_ADDRESSES_SECRETFILE=/run/secrets/wireguard_addresses
+#      - LOCAL_NETWORK=192.168.2.0/24
+#    volumes:
+#      - /mnt/pool1/appdata/config/gluetun/secrets:/run/secrets:ro
+#    restart: unless-stopped
+#    networks:
+#      - vpn_usa
+
+  gluetun_uk:
+    image: qmcgaw/gluetun
+    container_name: gluetun_uk
+    cap_add:
+      - NET_ADMIN
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+      - VPN_TYPE=wireguard
+      - VPN_SERVICE_PROVIDER=custom
+      - WIREGUARD_CONF_SECRETFILE=/run/secrets/wg0_uk.conf
+      - WIREGUARD_PRIVATE_KEY_SECRETFILE=/run/secrets/wireguard_private_key
+      - WIREGUARD_PRESHARED_KEY_SECRETFILE=/run/secrets/wireguard_preshared_key
+      - WIREGUARD_ADDRESSES_SECRETFILE=/run/secrets/wireguard_addresses
+      - LOCAL_NETWORK=192.168.2.0/24
+    volumes:
+      - /mnt/pool1/appdata/config/gluetun/secrets:/run/secrets:ro
+    restart: unless-stopped
+    networks:
+      - vpn_uk
 
   qbittorrent:
     image: linuxserver/qbittorrent
@@ -39,7 +106,7 @@ services:
     restart: unless-stopped
 
   radarr:
-      image: linuxserver/radarr
+    image: linuxserver/radarr:latest
     container_name: radarr
     environment:
       - PUID=${PUID}
@@ -79,7 +146,7 @@ services:
     volumes:
       - /mnt/pool1/appdata/config/prowlarr:/config
     ports:
-          - 9696:9696
+      - 9696:9696
     restart: unless-stopped
     networks:
       - app_net
@@ -96,6 +163,7 @@ services:
     volumes:
       - /mnt/pool1/media/movies:/media/movies
       - /mnt/pool1/media/tv:/media/tv
+      - "/mnt/pool1/media/Books and Podcasts:/media/Books and Podcasts"
       - /mnt/pool1/appdata/config/jellyfin:/config
     ports:
       - 8096:8096
@@ -119,7 +187,7 @@ services:
       - app_net
 
   tailscale:
-      image: tailscale/tailscale:latest
+    image: tailscale/tailscale:latest
     container_name: tailscale
     network_mode: "host"
     cap_add:
@@ -155,8 +223,47 @@ services:
     networks:
       - app_net
 
+  xteve:
+    image: senexcrenshaw/xteve:latest
+    container_name: xteve
+    networks:
+      - vpn_uk_xteve
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=America/Toronto
+    volumes:
+      - /mnt/pool1/appdata/config/xteve:/root/.xteve
+    ports:
+      - 34400:34400
+    restart: unless-stopped
+
+#  xteve_us:
+#    image: senexcrenshaw/xteve:latest
+#    container_name: xteve_us
+#    networks:
+#      - vpn_usa_xteve
+#    environment:
+#      - PUID=${PUID}
+#      - PGID=${PGID}
+#      - TZ=America/Toronto
+#    volumes:
+#      - /mnt/pool1/appdata/config/xteve_us:/root/.xteve
+#    ports:
+#      - 34401:34400
+#
+#    restart: unless-stopped
+
 networks:
   app_net:
     driver: bridge
-  vpn_net:
+  vpn_canada:
+    driver: bridge
+  vpn_usa:
+    driver: bridge
+  vpn_uk:
+    driver: bridge
+  vpn_uk_xteve:
+    driver: bridge
+  vpn_usa_xteve:
     driver: bridge
